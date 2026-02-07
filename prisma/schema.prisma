@@ -1,0 +1,201 @@
+// This is the implementation of the Prisma schema based on the frontend analysis
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String @id @default(uuid())
+  name         String
+  email        String @unique
+  passwordHash String
+  status       String @default("Active") // Active, In-Active
+  createdOn    String // Storing as string to match frontend display format e.g., "10 Jan 2024"
+  access       Json // JSON object: { dashboard: boolean, sla: boolean, vendor: boolean, superAdmin: boolean, client: boolean }
+  role         String @default("Agent") // Helper field
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tickets Ticket[]
+  notes   Note[]
+}
+
+model Agent {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique // Login email
+  passwordHash String
+  status       String   @default("Active") // Active, In-Active
+  createdOn    String // Display date string "10 Jan 2024"
+  emails       String[] // Secondary contact emails
+  isSuperAdmin Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Potential future relations
+  // tickets Ticket[]
+}
+
+model Client {
+  id        String   @id @default(uuid())
+  name      String
+  emails    String[]
+  status    String   @default("Active")
+  createdOn String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tickets   Ticket[]
+}
+
+model Vendor {
+  id        String   @id @default(uuid())
+  name      String
+  emails    String[]
+  status    String   @default("Active")
+  createdOn String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Ticket {
+  id        String  @id @default(uuid())
+  ticketId  String  @unique // Friendly ID e.g., "#1234"
+  header    String
+  email     String // Requestor email
+  status    String // Open, In Progress, Closed
+  priority  String // Low, Medium, High
+  circuitId String?
+  date      String // Display date string
+
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id])
+
+  assignedUserId String?
+  assignedUser   User?   @relation(fields: [assignedUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  replies Reply[]
+  notes   Note[]
+  sla     SLARecord?
+}
+
+model Reply {
+  id       String   @id @default(uuid())
+  text     String
+  time     String
+  date     String
+  author   String // Name at time of reply
+  type     String // agent, client, vendor
+  category String // client, vendor (for thread grouping)
+  to       String[]
+  cc       String[]
+  bcc      String[]
+  subject  String? // Optional subject override
+
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model Note {
+  id     String @id @default(uuid())
+  text   String
+  time   String
+  author String
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model SLARecord {
+  id String @id @default(uuid())
+
+  startDate    String
+  startTime    String
+  closedTime   String?
+  closeDate    String?
+  status       String // Breached, Safe
+  compensation String?
+
+  ticketId String @unique
+  ticket   Ticket @relation(fields: [ticketId], references: [id])
+}
+
+// --- Circuit Management Models ---
+
+model Customer {
+  id       String    @id @default(uuid())
+  name     String // "Client Name" from Excel
+  circuits Circuit[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Supplier {
+  id       String    @id @default(uuid())
+  name     String // "Supplier Name" from Excel
+  circuits Circuit[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Circuit {
+  id String @id @default(uuid())
+
+  // --- Customer Details ---
+  customerCircuitId  String  @unique // "Customer Circuit ID"
+  poNumber           String? // "Po. Number"
+  serviceDescription String? // "Service description"
+  contractTermMonths Int? // "Contract term (In Months)"
+  contractType       String? // "Contract Type"
+
+  // --- Supplier Details ---
+  supplierCircuitId          String  @unique // "Suppiler Circuit ID"
+  supplierPoNumber           String? // "Supplier PO number"
+  supplierServiceDescription String? // "Supplier Service description"
+  supplierContractTermMonths Int? // "Supplicr Contract term (In Months)"
+  supplierContractType       String? // "Contract Type" (Supplier side)
+  billingStartDate           String? // "Billing Start Date" (kept as String to match pattern, or DateTime if preferred)
+
+  // --- Relations ---
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+
+  sla SLA?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SLA {
+  id    String @id @default(uuid())
+  value String // e.g. "99.50%" from "SLA" column
+
+  circuitId String  @unique
+  circuit   Circuit @relation(fields: [circuitId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
