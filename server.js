@@ -7,9 +7,8 @@ const morgan = require('morgan');
 const { errorHandler } = require('./middlewares/errorHandler');
 const logger = require('./utils/logger');
 
-if (process.env.NODE_ENV !== 'production') {
-    dotenv.config();
-}
+dotenv.config();
+
 
 const app = express();
 

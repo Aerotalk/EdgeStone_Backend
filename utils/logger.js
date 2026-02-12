@@ -71,25 +71,21 @@ const logger = winston.createLogger({
 });
 
 // If we're not in production, log to console as well
-if (process.env.NODE_ENV !== 'production') {
-    logger.add(new winston.transports.Console({
-        format: winston.format.combine(
-            winston.format.colorize(),
-            // winston.format.timestamp(), // Custom timestamp in printf
-            winston.format.printf(({ level, message, timestamp, stack }) => {
-                let emoji = '';
-                // Simple colorized output doesn't need emoji logic again if we use custom print, 
-                // but let's stick to consistent emoji
-                if (level.includes('info')) emoji = 'ℹ️';
-                if (level.includes('error')) emoji = '❌';
-                if (level.includes('warn')) emoji = '⚠️';
-                if (level.includes('debug')) emoji = '🐛';
+// Log to console in all environments (essential for Docker/Railway)
+logger.add(new winston.transports.Console({
+    format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.printf(({ level, message, timestamp, stack }) => {
+            let emoji = '';
+            if (level.includes('info')) emoji = 'ℹ️';
+            if (level.includes('error')) emoji = '❌';
+            if (level.includes('warn')) emoji = '⚠️';
+            if (level.includes('debug')) emoji = '🐛';
 
-                const istTime = getISTString();
-                return `${istTime} [${level}] ${emoji} : ${stack || message}`;
-            })
-        ),
-    }));
-}
+            const istTime = getISTString();
+            return `${istTime} [${level}] ${emoji} : ${stack || message}`;
+        })
+    ),
+}));
 
 module.exports = logger;
