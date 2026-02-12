@@ -8,15 +8,28 @@ const logger = require('../utils/logger');
 // --- Sender (Zepto Mail SMTP) ---
 const transporter = nodemailer.createTransport(emailConfig.smtp);
 
-const sendEmail = async ({ to, subject, html, text }) => {
+const sendEmail = async ({ to, subject, html, text, inReplyTo, references }) => {
     try {
-        const info = await transporter.sendMail({
+        const mailOptions = {
             from: `"${emailConfig.addresses.noReply}" <${emailConfig.addresses.noReply}>`,
             to,
             subject,
             text,
             html,
-        });
+        };
+
+        // Add email threading headers if provided
+        if (inReplyTo || references) {
+            mailOptions.headers = {};
+            if (inReplyTo) {
+                mailOptions.headers['In-Reply-To'] = inReplyTo;
+            }
+            if (references) {
+                mailOptions.headers['References'] = references;
+            }
+        }
+
+        const info = await transporter.sendMail(mailOptions);
         logger.info(`📧 Email sent successfully via SMTP: ${info.messageId} to ${to}`);
         return info;
     } catch (error) {
@@ -107,7 +120,8 @@ const fetchNewEmails = (imap, count) => {
                         attachments: parsed.attachments
                     };
 
-                    logger.info(`📝 Parsed Email: "${emailData.subject}" from ${emailData.from}`);
+                    logger.info('🔥🔥🔥 PERMAN RECEIVED A MAIL 🔥🔥🔥');
+                    logger.info(`📝 Parsed Email: "${emailData.subject}" from ${emailData.from} to ${parsed.to ? parsed.to.text : 'Unknown Recipient'}`);
 
                     try {
                         await ticketService.createTicketFromEmail(emailData);

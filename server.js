@@ -1,4 +1,5 @@
 const express = require('express');
+console.log("\n\n!!! 🚀 SERVER.JS STARTING - VERSION CHECK 1 - IF YOU SEE THIS, IT IS THE RIGHT CODE 🚀 !!!\n\n");
 const dotenv = require('dotenv');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -13,7 +14,37 @@ const app = express();
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cors());
+
+// Dynamic CORS Configuration
+const allowedOrigins = [
+    'http://localhost:5173', // Local Vite Frontend
+    'http://localhost:5000', // Local Backend (for self-calls if applicable)
+    'https://edgestonefrontend.vercel.app', // Production Vercel Frontend
+];
+
+// Add production frontend URL if available
+if (process.env.FRONTEND_URL) {
+    allowedOrigins.push(process.env.FRONTEND_URL);
+}
+
+app.use(cors({
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.indexOf(origin) === -1) {
+            // For development ease, maybe log the blocked origin?
+            // console.log('Blocked Origin:', origin);
+            // For now, in dev we might want to be permissive, but explicit for prod.
+            // If deployed on Vercel, the origin will be the Vercel URL.
+
+            // If we want to allow Vercel preview deployments (e.g., *.vercel.app), we need regex
+            // But strictly following the plan:
+            return callback(new Error('The CORS policy for this site does not allow access from the specified Origin.'), false);
+        }
+        return callback(null, true);
+    },
+    credentials: true // If we need cookies/sessions cross-origin
+}));
 app.use(helmet());
 // Stream morgan logs to winston
 app.use(morgan('combined', { stream: { write: message => logger.info(message.trim()) } }));

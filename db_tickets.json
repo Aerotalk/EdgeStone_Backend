@@ -1,0 +1,12 @@
+[
+  {
+    "id": "f1ee7116-261d-4035-b109-a61ffa999b1b",
+    "email": "test.client@example.com",
+    "header": "98765432 || SF/SFO - TOK/HND-002"
+  },
+  {
+    "id": "6d2c907c-3598-496d-86c9-9078f91dbddc",
+    "email": "marketing@edgestone.in",
+    "header": "IMAP/SMTP Flow Test 2026-02-06T12:36:48.724Z"
+  }
+]

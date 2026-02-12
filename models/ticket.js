@@ -33,6 +33,16 @@ const TicketModel = {
     // Find all tickets
     async findAllTickets(args = {}) {
         return prisma.ticket.findMany(args);
+    },
+
+    // Add reply to ticket
+    async addReply(ticketId, replyData) {
+        return prisma.reply.create({
+            data: {
+                ...replyData,
+                ticketId
+            }
+        });
     }
 };
 

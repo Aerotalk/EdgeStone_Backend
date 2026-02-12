@@ -28,6 +28,6 @@ module.exports = {
     // System Email Addresses
     addresses: {
         support: 'support@edgestone.in', // Main support inbox
-        noReply: process.env.FROM_EMAIL || 'no-reply@edgestone.in', // Sending address
+        noReply: process.env.MAIL_USER, // Must match authenticated SMTP user for Zoho
     }
 };

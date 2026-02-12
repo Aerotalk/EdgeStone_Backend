@@ -22,8 +22,9 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tickets Ticket[]
-  notes   Note[]
+  tickets   Ticket[]
+  notes     Note[]
+  workNotes WorkNote[]
 }
 
 model Agent {
@@ -50,9 +51,10 @@ model Client {
   status    String   @default("Active")
   createdOn String
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   tickets   Ticket[]
+  circuits  Circuit[]
 }
 
 model Vendor {
@@ -62,8 +64,9 @@ model Vendor {
   status    String   @default("Active")
   createdOn String
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  circuits  Circuit[]
 }
 
 model Ticket {
@@ -74,7 +77,12 @@ model Ticket {
   status    String // Open, In Progress, Closed
   priority  String // Low, Medium, High
   circuitId String?
+  messageId String? // Original email Message-ID for threading
   date      String // Display date string
+
+  // Real-time timestamp fields for email received time
+  receivedAt   DateTime? // Actual email received timestamp (ISO format)
+  receivedTime String? // Display time (HH:MM format)
 
   clientId String?
   client   Client? @relation(fields: [clientId], references: [id])
@@ -85,9 +93,11 @@ model Ticket {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  replies Reply[]
-  notes   Note[]
-  sla     SLARecord?
+  replies      Reply[]
+  notes        Note[]
+  sla          SLARecord?
+  activityLogs ActivityLog[]
+  workNotes    WorkNote[]
 }
 
 model Reply {
@@ -138,25 +148,48 @@ model SLARecord {
   ticket   Ticket @relation(fields: [ticketId], references: [id])
 }
 
+// --- Work Notes Model (ServiceNow-like internal notes) ---
+
+model WorkNote {
+  id       String  @id @default(uuid())
+  text     String  @db.Text
+  time     String // HH:MM format (24-hour)
+  date     String // Display format "11 Feb 2026"
+  author   String // Agent name
+  isSystem Boolean @default(false) // System-generated vs manual
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// --- Activity Log Model (ServiceNow-like activity tracking) ---
+
+model ActivityLog {
+  id          String @id @default(uuid())
+  action      String // "created", "updated", "replied", "assigned", "status_changed", "priority_changed", "work_note_added", "auto_replied"
+  description String @db.Text // Human-readable description
+  time        String // HH:MM format (24-hour)
+  date        String // Display format "11 Feb 2026"
+  author      String // Who performed the action
+
+  // Store old and new values for changes
+  oldValue  String?
+  newValue  String?
+  fieldName String? // Which field changed
+
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
 // --- Circuit Management Models ---
-
-model Customer {
-  id       String    @id @default(uuid())
-  name     String // "Client Name" from Excel
-  circuits Circuit[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Supplier {
-  id       String    @id @default(uuid())
-  name     String // "Supplier Name" from Excel
-  circuits Circuit[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
 
 model Circuit {
   id String @id @default(uuid())
@@ -177,11 +210,11 @@ model Circuit {
   billingStartDate           String? // "Billing Start Date" (kept as String to match pattern, or DateTime if preferred)
 
   // --- Relations ---
-  customerId String
-  customer   Customer @relation(fields: [customerId], references: [id])
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id])
 
-  supplierId String
-  supplier   Supplier @relation(fields: [supplierId], references: [id])
+  vendorId String?
+  vendor   Vendor? @relation(fields: [vendorId], references: [id])
 
   sla SLA?
 
