@@ -7,7 +7,9 @@ const morgan = require('morgan');
 const { errorHandler } = require('./middlewares/errorHandler');
 const logger = require('./utils/logger');
 
-dotenv.config();
+if (process.env.NODE_ENV !== 'production') {
+    dotenv.config();
+}
 
 const app = express();
 
@@ -50,6 +52,16 @@ app.use(helmet());
 app.use(morgan('combined', { stream: { write: message => logger.info(message.trim()) } }));
 
 // Routes (Placeholders)
+// Health Check Route
+app.get('/', (req, res) => {
+    res.status(200).json({
+        message: 'EdgeStone Ticket System API is running',
+        status: 'OK',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0'
+    });
+});
+
 app.use('/api/auth', require('./routes/authRoutes'));
 logger.debug('🔐 Auth routes registered');
 
