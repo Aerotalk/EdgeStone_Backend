@@ -63,3 +63,13 @@ jobs:
           CI: true
           DATABASE_URL: postgres://testuser:testpassword@localhost:5432/testdb
           JWT_SECRET: test_secret_key
+          JWT_EXPIRES_IN: "1d"
+          PORT: 5000
+          MAIL_USER: "test@example.com"
+          MAIL_PASSWORD: "password"
+          IMAP_HOST: "imap.example.com"
+          IMAP_PORT: 993
+          IMAP_SECURE: true
+          SMTP_HOST: "smtp.example.com"
+          SMTP_PORT: 465
+          SMTP_SECURE: true
