@@ -27,22 +27,24 @@ async function main() {
     });
     console.log('Created Super Admin:', admin.email);
 
-    // 2. Create IT Admin (for tests)
-    const itPasswordHash = await bcrypt.hash('i@edgestone123', salt);
-    const itAdmin = await prisma.user.upsert({
-        where: { email: 'it@edgestone.in' },
-        update: {},
-        create: {
-            name: 'IT Admin',
-            email: 'it@edgestone.in',
-            passwordHash: itPasswordHash,
-            status: 'Active',
-            createdOn: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
-            access: { dashboard: true, sla: true, vendor: true, superAdmin: true, client: true },
-            role: 'Admin'
-        },
-    });
-    console.log('Created IT Test Admin:', itAdmin.email);
+    // 2. Create IT Admin (for tests) - ONLY if requested
+    if (process.env.CREATE_TEST_USER === 'true') {
+        const itPasswordHash = await bcrypt.hash('i@edgestone123', salt);
+        const itAdmin = await prisma.user.upsert({
+            where: { email: 'it@edgestone.in' },
+            update: {},
+            create: {
+                name: 'IT Admin',
+                email: 'it@edgestone.in',
+                passwordHash: itPasswordHash,
+                status: 'Active',
+                createdOn: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+                access: { dashboard: true, sla: true, vendor: true, superAdmin: true, client: true },
+                role: 'Admin'
+            },
+        });
+        console.log('Created IT Test Admin:', itAdmin.email);
+    }
 
 
 
