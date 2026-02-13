@@ -37,7 +37,7 @@ const replyTicket = async (req, res, next) => {
 🕒 Timestamp (IST) : ${getISTString()}
 🆔 Ticket ID       : ${id}
 👤 Sender          : ${agentName} <${agentEmail}>
-📝 Content         : "${message.length > 100 ? message.substring(0, 100) + '...' : message}"
+📝 Content         : "${message}"
 --------------------------------------------------
 `);
 

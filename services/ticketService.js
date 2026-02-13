@@ -250,6 +250,7 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName) => {
 
         // 3. Send Email to Client
         const emailService = require('./emailService');
+        logger.info(`📧 Sending Reply Email to: ${ticket.email} | Subject: Re: ${ticket.header}`);
         await emailService.sendEmail({
             to: ticket.email,
             subject: `Re: ${ticket.header} [${ticket.ticketId}]`,
