@@ -16,27 +16,23 @@ module.exports = {
 
     // Zoho Mail SMTP Configuration (Outgoing)
     smtp: {
-        host: process.env.SMTP_HOST || 'smtppro.zoho.in',
+        host: process.env.SMTP_HOST || 'smtp.zoho.com', // Use generic endpoint
         port: process.env.SMTP_PORT || 465,
-        secure: String(process.env.SMTP_SECURE) === 'true', // Ensure boolean
+        secure: true, // Force SSL
         auth: {
             user: process.env.MAIL_USER,
             pass: process.env.MAIL_PASSWORD,
         },
-        // POOLING: Keep connection alive to avoid handshake timeouts
-        pool: true,
-        maxConnections: 2,
-        maxMessages: Infinity,
-        // Debugging & Timeouts to fix Connection Timeout
-        connectionTimeout: 30000,
-        greetingTimeout: 30000, // Wait longer for initial greeting
-        socketTimeout: 30000,
+        // ROBUST CONFIG: No pooling, long timeouts, IPv4
+        connectionTimeout: 60000, // 60s
+        greetingTimeout: 30000, // 30s
+        socketTimeout: 60000, // 60s
         logger: true,
         debug: true,
         tls: {
             rejectUnauthorized: false
         },
-        family: 4 // Force IPv4 to avoid potential IPv6 routing issues on Railway
+        family: 4 // Force IPv4
     },
 
     // System Email Addresses
