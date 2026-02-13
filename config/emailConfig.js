@@ -23,9 +23,14 @@ module.exports = {
             user: process.env.MAIL_USER,
             pass: process.env.MAIL_PASSWORD,
         },
+        // POOLING: Keep connection alive to avoid handshake timeouts
+        pool: true,
+        maxConnections: 2,
+        maxMessages: Infinity,
         // Debugging & Timeouts to fix Connection Timeout
-        connectionTimeout: 30000, // Increased to 30s to rule out slow handshakes
-        socketTimeout: 20000,
+        connectionTimeout: 30000,
+        greetingTimeout: 30000, // Wait longer for initial greeting
+        socketTimeout: 30000,
         logger: true,
         debug: true,
         tls: {
