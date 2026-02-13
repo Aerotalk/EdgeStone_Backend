@@ -18,11 +18,19 @@ module.exports = {
     smtp: {
         host: process.env.SMTP_HOST || 'smtppro.zoho.in',
         port: process.env.SMTP_PORT || 465,
-        secure: process.env.SMTP_SECURE === 'true',
+        secure: String(process.env.SMTP_SECURE) === 'true', // Ensure boolean
         auth: {
             user: process.env.MAIL_USER,
             pass: process.env.MAIL_PASSWORD,
         },
+        // Debugging & Timeouts to fix Connection Timeout
+        const: 10000,
+        socketTimeout: 20000, // Increased to 20s
+        logger: true,
+        debug: true,
+        tls: {
+            rejectUnauthorized: false
+        }
     },
 
     // System Email Addresses
