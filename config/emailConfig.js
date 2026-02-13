@@ -17,8 +17,8 @@ module.exports = {
     // Zoho Mail SMTP Configuration (Outgoing)
     smtp: {
         host: process.env.SMTP_HOST || 'smtp.zoho.com', // Use generic endpoint
-        port: process.env.SMTP_PORT || 465,
-        secure: true, // Force SSL
+        port: process.env.SMTP_PORT || 587,
+        secure: false, // TLS (STARTTLS)
         auth: {
             user: process.env.MAIL_USER,
             pass: process.env.MAIL_PASSWORD,
