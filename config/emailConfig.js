@@ -24,13 +24,14 @@ module.exports = {
             pass: process.env.MAIL_PASSWORD,
         },
         // Debugging & Timeouts to fix Connection Timeout
-        const: 10000,
-        socketTimeout: 20000, // Increased to 20s
+        connectionTimeout: 10000, // Fixed typo "const" -> "connectionTimeout"
+        socketTimeout: 20000,
         logger: true,
         debug: true,
         tls: {
             rejectUnauthorized: false
-        }
+        },
+        family: 4 // Force IPv4 to avoid potential IPv6 routing issues on Railway
     },
 
     // System Email Addresses
