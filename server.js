@@ -21,8 +21,7 @@ const allowedOrigins = [
     'http://localhost:5173', // Local Vite Frontend
     'http://localhost:5000', // Local Backend (for self-calls if applicable)
     'https://edgestonefrontend.vercel.app', // Production Vercel Frontend
-    'https://edgestonefrontend-b4zz7k8lh-aerotalks-projects.vercel.app',
-    'https://edgestonefrontend.vercel.app/login', // Vercel Preview/Production URL
+    'https://edgestonefrontend-b4zz7k8lh-aerotalks-projects.vercel.app', // Vercel Preview/Production URL
 ];
 
 // Add production frontend URL if available
@@ -88,16 +87,53 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 
-if (require.main === module) {
-    app.listen(PORT, () => {
-        logger.info(`🚀 Server running on port ${PORT}`);
+// ... (previous code)
 
-        // Start IMAP Listener for incoming emails
-        const emailService = require('./services/emailService');
-        // emailService.startImapListener needs to be logged inside the service, but we can log initialization here
-        logger.info('📧 Initializing IMAP Listener...');
-        emailService.startImapListener();
-    });
+logger.info('⏳ Attempting to start server...');
+
+// Force start if PORT is defined, or if main module
+// debugging: log the condition
+logger.info(`🔍 require.main === module: ${require.main === module}`);
+
+if (require.main === module || process.env.NODE_ENV === 'production') {
+    try {
+        const server = app.listen(PORT, () => {
+            logger.info(`🚀 Server running on port ${PORT}`);
+
+            // Start IMAP Listener for incoming emails
+            try {
+                const emailService = require('./services/emailService');
+                logger.info('📧 Initializing IMAP Listener...');
+                emailService.startImapListener();
+            } catch (err) {
+                logger.error('❌ Failed to start IMAP listener:', err);
+            }
+        });
+
+        server.on('error', (err) => {
+            logger.error('❌ Server failed to start:', err);
+            process.exit(1);
+        });
+    } catch (err) {
+        logger.error('❌ Synchronous error during app.listen:', err);
+        process.exit(1);
+    }
+} else {
+    logger.warn('⚠️ Server not started: require.main !== module');
 }
 
 module.exports = app;
+
+// Add global error handlers
+process.on('uncaughtException', (err) => {
+    console.error('❌ Uncaught Exception:', err);
+    // logger may not be available if it failed to initialize
+    try { logger.error('❌ Uncaught Exception:', err); } catch (e) { }
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+    try { logger.error('❌ Unhandled Rejection:', reason); } catch (e) { }
+    // process.exit(1);
+});
