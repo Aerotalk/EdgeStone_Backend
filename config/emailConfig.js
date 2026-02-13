@@ -17,7 +17,7 @@ module.exports = {
     // Zoho Mail SMTP Configuration (Outgoing)
     smtp: {
         host: process.env.SMTP_HOST || 'smtppro.zoho.in',
-        port: process.env.SMTP_PORT || 465,
+        port: process.env.SMTP_PORT || 587,
         secure: String(process.env.SMTP_SECURE) === 'true', // Ensure boolean
         auth: {
             user: process.env.MAIL_USER,

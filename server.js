@@ -59,7 +59,7 @@ app.use(cors({
         const isAllowed = allowedOrigins.includes(origin);
 
         // Check if it's a Vercel deployment (allow all *.vercel.app)
-        const isVercel = origin.endsWith('.vercel.app');
+        const isVercel = origin.includes('.vercel.app');
 
         if (isAllowed || isVercel) {
             return callback(null, true);
