@@ -16,23 +16,13 @@ module.exports = {
 
     // Zoho Mail SMTP Configuration (Outgoing)
     smtp: {
-        host: process.env.SMTP_HOST || 'smtp.zoho.com', // Use generic endpoint
-        port: process.env.SMTP_PORT || 587,
-        secure: false, // TLS (STARTTLS)
+        service: 'Zoho',
         auth: {
             user: process.env.MAIL_USER,
             pass: process.env.MAIL_PASSWORD,
         },
-        // ROBUST CONFIG: No pooling, long timeouts, IPv4
-        connectionTimeout: 60000, // 60s
-        greetingTimeout: 30000, // 30s
-        socketTimeout: 60000, // 60s
         logger: true,
         debug: true,
-        tls: {
-            rejectUnauthorized: false
-        },
-        family: 4 // Force IPv4
     },
 
     // System Email Addresses
