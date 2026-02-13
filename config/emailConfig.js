@@ -17,14 +17,14 @@ module.exports = {
     // Zoho Mail SMTP Configuration (Outgoing)
     smtp: {
         host: process.env.SMTP_HOST || 'smtppro.zoho.in',
-        port: process.env.SMTP_PORT || 587,
+        port: process.env.SMTP_PORT || 465,
         secure: String(process.env.SMTP_SECURE) === 'true', // Ensure boolean
         auth: {
             user: process.env.MAIL_USER,
             pass: process.env.MAIL_PASSWORD,
         },
         // Debugging & Timeouts to fix Connection Timeout
-        connectionTimeout: 10000, // Fixed typo "const" -> "connectionTimeout"
+        connectionTimeout: 30000, // Increased to 30s to rule out slow handshakes
         socketTimeout: 20000,
         logger: true,
         debug: true,
