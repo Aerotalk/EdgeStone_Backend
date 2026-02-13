@@ -54,17 +54,20 @@ app.use(cors({
     origin: function (origin, callback) {
         // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true);
-        if (allowedOrigins.indexOf(origin) === -1) {
-            // For development ease, maybe log the blocked origin?
-            // console.log('Blocked Origin:', origin);
-            // For now, in dev we might want to be permissive, but explicit for prod.
-            // If deployed on Vercel, the origin will be the Vercel URL.
 
-            // If we want to allow Vercel preview deployments (e.g., *.vercel.app), we need regex
-            // But strictly following the plan:
+        // Check against allowed origins list
+        const isAllowed = allowedOrigins.includes(origin);
+
+        // Check if it's a Vercel deployment (allow all *.vercel.app)
+        const isVercel = origin.endsWith('.vercel.app');
+
+        if (isAllowed || isVercel) {
+            return callback(null, true);
+        } else {
+            // Log the blocked origin for debugging
+            if (global.logger) global.logger.warn(`⚠️ CORS Blocked Origin: ${origin}`);
             return callback(new Error('The CORS policy for this site does not allow access from the specified Origin.'), false);
         }
-        return callback(null, true);
     },
     credentials: true // If we need cookies/sessions cross-origin
 }));
