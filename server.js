@@ -1,11 +1,32 @@
 const express = require('express');
-console.log("\n\n!!! 🚀 SERVER.JS STARTING - VERSION CHECK 1 - IF YOU SEE THIS, IT IS THE RIGHT CODE 🚀 !!!\n\n");
+console.log("\n\n!!! 🚀 SERVER.JS STARTING - VERSION CHECK 2 - HANDLERS AT TOP 🚀 !!!\n\n");
+
+// 1. REGISTER GLOBAL ERROR HANDLERS FIRST
+process.on('uncaughtException', (err) => {
+    console.error('❌ CRITICAL: Uncaught Exception:', err);
+    // Try to log to file if logger is available, but console.error is safest for immediate stderr capture
+    try {
+        if (global.logger) global.logger.error('❌ CRITICAL: Uncaught Exception:', err);
+    } catch (e) { }
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ CRITICAL: Unhandled Rejection at:', promise, 'reason:', reason);
+    try {
+        if (global.logger) global.logger.error('❌ CRITICAL: Unhandled Rejection:', reason);
+    } catch (e) { }
+});
+
 const dotenv = require('dotenv');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const { errorHandler } = require('./middlewares/errorHandler');
 const logger = require('./utils/logger');
+
+// Make logger globally available for the exception handlers
+global.logger = logger;
 
 dotenv.config();
 
@@ -62,32 +83,55 @@ app.get('/', (req, res) => {
     });
 });
 
-app.use('/api/auth', require('./routes/authRoutes'));
-logger.debug('🔐 Auth routes registered');
+// Wrap Route Includes in Try-Catch to debug startup crashes
+try {
+    app.use('/api/auth', require('./routes/authRoutes'));
+    logger.debug('🔐 Auth routes registered');
+} catch (error) {
+    logger.error('❌ Failed to load Auth Routes:', error);
+}
 
-app.use('/api/tickets', require('./routes/ticketRoutes'));
-logger.debug('🎫 Ticket routes registered');
+try {
+    app.use('/api/tickets', require('./routes/ticketRoutes'));
+    logger.debug('🎫 Ticket routes registered');
+} catch (error) {
+    logger.error('❌ Failed to load Ticket Routes:', error);
+}
 
-app.use('/api/email', require('./routes/emailRoutes'));
-logger.debug('📧 Email routes registered');
+try {
+    app.use('/api/email', require('./routes/emailRoutes'));
+    logger.debug('📧 Email routes registered');
+} catch (error) {
+    logger.error('❌ Failed to load Email Routes:', error);
+}
 
-app.use('/api/agents', require('./routes/agentRoutes'));
-logger.debug('👥 Agent routes registered');
+try {
+    app.use('/api/agents', require('./routes/agentRoutes'));
+    logger.debug('👥 Agent routes registered');
+} catch (error) {
+    logger.error('❌ Failed to load Agent Routes:', error);
+}
 
 // app.use('/api/admin', require('./routes/adminRoutes'));
 
-app.use('/api/clients', require('./routes/clientRoutes'));
-logger.debug('🏢 Client routes registered');
+try {
+    app.use('/api/clients', require('./routes/clientRoutes'));
+    logger.debug('🏢 Client routes registered');
+} catch (error) {
+    logger.error('❌ Failed to load Client Routes:', error);
+}
 
-app.use('/api/vendors', require('./routes/vendorRoutes'));
-logger.debug('🏭 Vendor routes registered');
+try {
+    app.use('/api/vendors', require('./routes/vendorRoutes'));
+    logger.debug('🏭 Vendor routes registered');
+} catch (error) {
+    logger.error('❌ Failed to load Vendor Routes:', error);
+}
 
 // Error Handler
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
-
-// ... (previous code)
 
 logger.info('⏳ Attempting to start server...');
 
@@ -123,17 +167,3 @@ if (require.main === module || process.env.NODE_ENV === 'production') {
 }
 
 module.exports = app;
-
-// Add global error handlers
-process.on('uncaughtException', (err) => {
-    console.error('❌ Uncaught Exception:', err);
-    // logger may not be available if it failed to initialize
-    try { logger.error('❌ Uncaught Exception:', err); } catch (e) { }
-    process.exit(1);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-    try { logger.error('❌ Unhandled Rejection:', reason); } catch (e) { }
-    // process.exit(1);
-});

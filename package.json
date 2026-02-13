@@ -11,7 +11,8 @@
     "test:prod": "jest production_tests/",
     "test:e2e": "jest e2e_tests/",
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "postinstall": "prisma generate"
   },
   "repository": {
     "type": "git",
