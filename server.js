@@ -21,6 +21,8 @@ const allowedOrigins = [
     'http://localhost:5173', // Local Vite Frontend
     'http://localhost:5000', // Local Backend (for self-calls if applicable)
     'https://edgestonefrontend.vercel.app', // Production Vercel Frontend
+    'https://edgestonefrontend-b4zz7k8lh-aerotalks-projects.vercel.app',
+    'https://edgestonefrontend.vercel.app/login', // Vercel Preview/Production URL
 ];
 
 // Add production frontend URL if available
