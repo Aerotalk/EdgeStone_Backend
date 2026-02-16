@@ -18,9 +18,10 @@ const sendEmail = async ({ to, subject, html, text, inReplyTo, references }) => 
     const transporter = createTransporter();
 
     try {
-        // Verify connection before sending (helps catch issues early)
-        await transporter.verify();
-        logger.info('✅ SMTP connection verified');
+        // Skip verification on Railway - it's causing 60s+ timeouts
+        // Connection will be verified implicitly when sendMail is called
+        // await transporter.verify();
+        // logger.info('✅ SMTP connection verified');
 
         const mailOptions = {
             from: `"${emailConfig.addresses.noReply}" <${emailConfig.addresses.noReply}>`,
