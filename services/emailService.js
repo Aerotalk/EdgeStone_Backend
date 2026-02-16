@@ -5,11 +5,21 @@ const emailConfig = require('../config/emailConfig');
 const ticketService = require('./ticketService');
 const logger = require('../utils/logger');
 
-// --- Sender (Zepto Mail SMTP) ---
-const transporter = nodemailer.createTransport(emailConfig.smtp);
+// --- Sender (Zoho Mail SMTP) ---
+// Create fresh transporter for each email to avoid stale connections on Railway
+const createTransporter = () => {
+    return nodemailer.createTransport(emailConfig.smtp);
+};
 
 const sendEmail = async ({ to, subject, html, text, inReplyTo, references }) => {
+    // Create a fresh transporter for this email
+    const transporter = createTransporter();
+
     try {
+        // Verify connection before sending (helps catch issues early)
+        await transporter.verify();
+        logger.info('✅ SMTP connection verified');
+
         const mailOptions = {
             from: `"${emailConfig.addresses.noReply}" <${emailConfig.addresses.noReply}>`,
             to,
@@ -31,9 +41,14 @@ const sendEmail = async ({ to, subject, html, text, inReplyTo, references }) => 
 
         const info = await transporter.sendMail(mailOptions);
         logger.info(`📧 Email sent successfully via SMTP: ${info.messageId} to ${to}`);
+
+        // Close the connection after sending
+        transporter.close();
+
         return info;
     } catch (error) {
         logger.error(`❌ Error sending email: ${error.message}`, { stack: error.stack });
+        transporter.close(); // Ensure connection is closed even on error
         throw error;
     }
 };
