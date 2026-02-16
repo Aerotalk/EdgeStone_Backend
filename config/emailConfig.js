@@ -21,10 +21,12 @@ module.exports = {
 
 
     // Zoho Mail SMTP Configuration (Outgoing)
+    // Using port 587 with STARTTLS for better Railway compatibility
     smtp: {
         host: process.env.SMTP_HOST || 'smtppro.zoho.in',
-        port: process.env.SMTP_PORT || 465,
-        secure: true, // SSL
+        port: process.env.SMTP_PORT || 587, // Changed from 465 to 587
+        secure: false, // Use STARTTLS instead of SSL
+        requireTLS: true, // Force TLS upgrade
         auth: {
             user: process.env.MAIL_USER,
             pass: process.env.MAIL_PASSWORD,
