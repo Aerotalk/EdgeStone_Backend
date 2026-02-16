@@ -52,6 +52,11 @@ const startImapListener = () => {
             }
             logger.info('📥 Inbox Open. Waiting for new emails...');
 
+            // CRITICAL FIX: Check for existing UNSEEN emails first
+            logger.info('🔍 Performing initial check for existing unread emails...');
+            fetchNewEmails(imap, 0); // Check for any existing UNSEEN emails
+
+            // Then listen for new emails that arrive after connection
             imap.on('mail', (numNewMsgs) => {
                 logger.info(`📨 ${numNewMsgs} new messages received`);
                 fetchNewEmails(imap, numNewMsgs);
@@ -81,7 +86,7 @@ const openInbox = (imap, cb) => {
 };
 
 const fetchNewEmails = (imap, count) => {
-    logger.debug(`🔍 Searching for UNSEEN messages...`);
+    logger.info(`🔍 Searching for UNSEEN messages... (Triggered by ${count} new message(s))`);
 
     imap.search(['UNSEEN'], (err, results) => {
         if (err) {
@@ -89,8 +94,14 @@ const fetchNewEmails = (imap, count) => {
             return;
         }
 
+        // Enhanced logging to debug the issue
+        logger.info(`🔎 Search completed. Raw results: ${JSON.stringify(results)}`);
+        logger.info(`🔎 Results type: ${typeof results}, Is Array: ${Array.isArray(results)}, Length: ${results ? results.length : 'null'}`);
+
         if (!results || !results.length) {
-            logger.info('📭 No unseen messages found.');
+            logger.warn('📭 No unseen messages found despite "mail" event firing!');
+            logger.warn('⚠️ This suggests emails are being marked as READ before we can process them.');
+            logger.warn('⚠️ Possible causes: Another email client is connected, or Zoho web interface is open.');
             return;
         }
 
