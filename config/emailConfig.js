@@ -1,13 +1,21 @@
 const dotenv = require('dotenv');
 dotenv.config();
 
+// Normalize SMTP configuration to avoid mismatches between port and TLS mode.
+// - Port 587  → STARTTLS (secure: false, requireTLS: true)
+// - Port 465  → Implicit TLS (secure: true, requireTLS: false)
+const smtpPort = Number(process.env.SMTP_PORT) || 587;
+const smtpSecure = process.env.SMTP_SECURE
+    ? process.env.SMTP_SECURE === 'true'
+    : smtpPort === 465;
+
 module.exports = {
     // Zoho Mail IMAP Configuration (Incoming)
     imap: {
         user: process.env.MAIL_USER,
         password: process.env.MAIL_PASSWORD,
         host: process.env.IMAP_HOST || 'imappro.zoho.in',
-        port: process.env.IMAP_PORT || 993,
+        port: Number(process.env.IMAP_PORT) || 993,
         tls: process.env.IMAP_SECURE === 'true',
         tlsOptions: { rejectUnauthorized: false },
         authTimeout: 60000, // Increased from 30s to 60s
@@ -19,14 +27,14 @@ module.exports = {
         }
     },
 
-
     // Zoho Mail SMTP Configuration (Outgoing)
-    // Using port 587 with STARTTLS for better Railway compatibility
+    // Defaults to port 587 with STARTTLS, but safely supports 465 + implicit TLS.
     smtp: {
         host: process.env.SMTP_HOST || 'smtppro.zoho.in',
-        port: process.env.SMTP_PORT || 587, // Changed from 465 to 587
-        secure: false, // Use STARTTLS instead of SSL
-        requireTLS: true, // Force TLS upgrade
+        port: smtpPort,
+        secure: smtpSecure,
+        // Only force STARTTLS when we are not already using implicit TLS (secure: true)
+        requireTLS: !smtpSecure,
         auth: {
             user: process.env.MAIL_USER,
             pass: process.env.MAIL_PASSWORD,
