@@ -29,9 +29,9 @@ module.exports = {
             user: process.env.MAIL_USER,
             pass: process.env.MAIL_PASSWORD,
         },
-        connectionTimeout: 10000,
-        greetingTimeout: 5000,
-        socketTimeout: 10000,
+        connectionTimeout: 60000, // Increased from 10s to 60s
+        greetingTimeout: 30000,   // Increased from 5s to 30s
+        socketTimeout: 60000,     // Increased from 10s to 60s
         logger: true,
         debug: true,
     },
