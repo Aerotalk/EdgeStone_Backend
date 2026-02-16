@@ -10,7 +10,13 @@ module.exports = {
         port: process.env.IMAP_PORT || 993,
         tls: process.env.IMAP_SECURE === 'true',
         tlsOptions: { rejectUnauthorized: false },
-        authTimeout: 30000,
+        authTimeout: 60000, // Increased from 30s to 60s
+        connTimeout: 60000, // Connection timeout
+        keepalive: {
+            interval: 10000, // Send keepalive every 10s
+            idleInterval: 300000, // IDLE for 5 minutes
+            forceNoop: true
+        }
     },
 
 
