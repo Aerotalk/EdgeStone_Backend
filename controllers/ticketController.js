@@ -22,6 +22,31 @@ const createTicket = async (req, res, next) => {
     }
 };
 
+const updateTicket = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { circuitId, priority, status } = req.body;
+
+        logger.debug(`📝 Request received: updateTicket for ticket ${id}`);
+        logger.debug(`Updates: circuitId=${circuitId}, priority=${priority}, status=${status}`);
+
+        const agentName = req.user ? req.user.name : 'Agent';
+        const agentEmail = req.user ? req.user.email : 'support@edgestone.in';
+
+        const updatedTicket = await ticketService.updateTicket(
+            id,
+            { circuitId, priority, status },
+            agentName
+        );
+
+        logger.info(`✅ Ticket ${id} updated successfully`);
+        res.json({ message: 'Ticket updated successfully', ticket: updatedTicket });
+    } catch (error) {
+        logger.error(`❌ Error updating ticket: ${error.message}`);
+        next(error);
+    }
+};
+
 const replyTicket = async (req, res, next) => {
     try {
         const { id } = req.params;
@@ -53,5 +78,6 @@ const replyTicket = async (req, res, next) => {
 module.exports = {
     getTickets,
     createTicket,
+    updateTicket,
     replyTicket
 };

@@ -115,6 +115,13 @@ try {
     logger.error('❌ Failed to load Agent Routes:', error);
 }
 
+try {
+    app.use('/api/circuits', require('./routes/circuitRoutes'));
+    logger.debug('🔌 Circuit routes registered');
+} catch (error) {
+    logger.error('❌ Failed to load Circuit Routes:', error);
+}
+
 // app.use('/api/admin', require('./routes/adminRoutes'));
 
 try {

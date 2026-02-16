@@ -299,8 +299,125 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName) => {
     }
 };
 
+const updateTicket = async (ticketId, updates, agentName) => {
+    logger.info(`🔄 Updating ticket ${ticketId} by ${agentName}`);
+    logger.debug(`Updates: ${JSON.stringify(updates)}`);
+
+    try {
+        // 1. Find the ticket
+        let ticket;
+        if (ticketId.startsWith('#')) {
+            const tickets = await TicketModel.findAllTickets();
+            ticket = tickets.find(t => t.ticketId === ticketId);
+        } else {
+            ticket = await TicketModel.findTicketById(ticketId);
+        }
+
+        if (!ticket) {
+            throw new Error(`Ticket not found: ${ticketId}`);
+        }
+
+        const ActivityLogModel = require('../models/activityLog');
+        const now = new Date();
+        const timeString = now.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+        const dateString = now.toLocaleDateString('en-GB', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric'
+        });
+
+        // 2. Determine if we should auto-transition to "In Progress"
+        let finalUpdates = { ...updates };
+
+        // Check if ticket is currently "Open" and we're setting circuit/priority
+        if (ticket.status === 'Open') {
+            const settingCircuit = updates.circuitId && !ticket.circuitId;
+            const hasPriority = updates.priority || ticket.priority;
+
+            // Auto-transition to "In Progress" if circuit is being set and priority exists
+            if (settingCircuit && hasPriority) {
+                finalUpdates.status = 'In Progress';
+                logger.info(`✨ Auto-transitioning ticket to "In Progress" (circuit + priority set)`);
+
+                // Log the auto-transition
+                await ActivityLogModel.createActivityLog({
+                    ticketId: ticket.id,
+                    action: 'status_changed',
+                    description: `Status automatically changed to "In Progress" (circuit and priority assigned)`,
+                    time: timeString,
+                    date: dateString,
+                    author: agentName,
+                    oldValue: ticket.status,
+                    newValue: 'In Progress',
+                    fieldName: 'status'
+                });
+            }
+        }
+
+        // 3. Log individual field changes
+        if (updates.circuitId && updates.circuitId !== ticket.circuitId) {
+            await ActivityLogModel.createActivityLog({
+                ticketId: ticket.id,
+                action: 'updated',
+                description: `Circuit ID ${ticket.circuitId ? 'updated' : 'assigned'}: ${updates.circuitId}`,
+                time: timeString,
+                date: dateString,
+                author: agentName,
+                oldValue: ticket.circuitId || 'None',
+                newValue: updates.circuitId,
+                fieldName: 'circuitId'
+            });
+        }
+
+        if (updates.priority && updates.priority !== ticket.priority) {
+            await ActivityLogModel.createActivityLog({
+                ticketId: ticket.id,
+                action: 'priority_changed',
+                description: `Priority changed from "${ticket.priority}" to "${updates.priority}"`,
+                time: timeString,
+                date: dateString,
+                author: agentName,
+                oldValue: ticket.priority,
+                newValue: updates.priority,
+                fieldName: 'priority'
+            });
+        }
+
+        // Log manual status change (if different from auto-transition)
+        if (updates.status && updates.status !== ticket.status && updates.status !== finalUpdates.status) {
+            await ActivityLogModel.createActivityLog({
+                ticketId: ticket.id,
+                action: 'status_changed',
+                description: `Status changed from "${ticket.status}" to "${updates.status}"`,
+                time: timeString,
+                date: dateString,
+                author: agentName,
+                oldValue: ticket.status,
+                newValue: updates.status,
+                fieldName: 'status'
+            });
+        }
+
+        // 4. Update the ticket
+        const updatedTicket = await TicketModel.updateTicket(ticket.id, finalUpdates);
+
+        logger.info(`✅ Ticket ${ticket.ticketId} updated successfully. New status: ${updatedTicket.status}`);
+
+        return updatedTicket;
+
+    } catch (error) {
+        logger.error(`❌ Error in updateTicket: ${error.message}`, { stack: error.stack });
+        throw error;
+    }
+};
+
 module.exports = {
     createTicketFromEmail,
     getTickets,
+    updateTicket,
     replyToTicket
 };
