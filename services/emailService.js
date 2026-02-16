@@ -6,8 +6,10 @@ const ticketService = require('./ticketService');
 const logger = require('../utils/logger');
 
 // --- Sender (Zoho Mail SMTP) ---
-// Create fresh transporter for each email to avoid stale connections on Railway
+// Create fresh transporter for each email to avoid stale connections on Railway/Render
 const createTransporter = () => {
+    // Log effective SMTP config (without password) to debug production issues
+    logger.debug(`SMTP config in use: host=${emailConfig.smtp.host}, port=${emailConfig.smtp.port}, secure=${emailConfig.smtp.secure}, requireTLS=${emailConfig.smtp.requireTLS}, user=${emailConfig.smtp.auth && emailConfig.smtp.auth.user}`);
     return nodemailer.createTransport(emailConfig.smtp);
 };
 
