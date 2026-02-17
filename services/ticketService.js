@@ -128,14 +128,15 @@ const createTicketFromEmail = async (emailData) => {
 
         logger.info(`✅ Ticket Created Successfully: ${ticket.ticketId} at ${ticket.receivedTime}`);
 
-        // 6. Send Auto-Reply with 30-second delay
+        // 6. Send Auto-Reply with 5-second delay (Reduced from 30s for reliability)
         // Lazy load emailService to avoid circular dependency
         const emailService = require('./emailService');
 
-        logger.info(`⏰ Scheduling auto-reply to ${from} in 30 seconds...`);
+        logger.info(`⏰ Scheduling auto-reply to ${from} in 5 seconds...`);
 
         setTimeout(async () => {
             try {
+                logger.info(`🔄 Initiating auto-reply sequence for Ticket ${ticket.ticketId}...`);
                 await emailService.sendEmail({
                     to: from,
                     subject: `Ticket Received: ${ticket.ticketId} - ${subject}`,
@@ -154,7 +155,7 @@ const createTicketFromEmail = async (emailData) => {
                     references: messageId
                 });
 
-                logger.info(`📤 Auto-reply sent to ${from} (30 seconds after receipt)`);
+                logger.info(`📤 Auto-reply sent successfully to ${from}`);
 
                 // Log auto-reply activity
                 const ActivityLogModel = require('../models/activityLog');
@@ -176,9 +177,11 @@ const createTicketFromEmail = async (emailData) => {
                     author: 'System'
                 });
             } catch (error) {
-                logger.error(`❌ Error sending delayed auto-reply: ${error.message}`, { stack: error.stack });
+                logger.error(`❌ FAILED to send auto-reply for Ticket ${ticket.ticketId}`);
+                logger.error(`❌ Reason: ${error.message}`);
+                logger.error(`⚠️ Please check SMTP configuration if this persists.`, { stack: error.stack });
             }
-        }, 30000); // 30 seconds delay
+        }, 5000); // 5 seconds delay
 
         return ticket;
 

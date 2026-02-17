@@ -1,103 +1,42 @@
-const Imap = require('imap');
-const { simpleParser } = require('mailparser');
-const nodemailer = require('nodemailer');
-const emailConfig = require('../config/emailConfig');
-const ticketService = require('./ticketService');
-const logger = require('../utils/logger');
+// --- Sender (Resend API) ---
+const { Resend } = require('resend');
 
-// --- Sender (Zoho Mail SMTP) ---
-// Create fresh transporter for each email to avoid stale connections on Railway/Render
-const createTransporter = () => {
-    // Log effective SMTP config (without password) to debug production issues
-    logger.debug(`SMTP config in use: host=${emailConfig.smtp.host}, port=${emailConfig.smtp.port}, secure=${emailConfig.smtp.secure}, requireTLS=${emailConfig.smtp.requireTLS}, user=${emailConfig.smtp.auth && emailConfig.smtp.auth.user}`);
-    return nodemailer.createTransport(emailConfig.smtp);
-};
+// Initialize Resend with API Key from environment
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const sendEmail = async ({ to, subject, html, text, inReplyTo, references }) => {
-    // Create a fresh transporter for this email
-    const transporter = createTransporter();
-
     try {
-        // Verify SMTP connection before sending (with timeout protection)
-        logger.info('🔍 Verifying SMTP connection...');
-        const verifyTimeout = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('SMTP verification timeout after 30s')), 30000)
-        );
-
-        try {
-            await Promise.race([
-                transporter.verify(),
-                verifyTimeout
-            ]);
-            logger.info('✅ SMTP connection verified successfully');
-        } catch (verifyError) {
-            logger.error(`⚠️ SMTP verification failed: ${verifyError.message}`);
-            logger.error(`   This may indicate Railway is blocking SMTP ports or Zoho credentials are invalid`);
-            // Continue anyway - sendMail will fail with more details if there's a real issue
+        if (!process.env.RESEND_API_KEY) {
+            throw new Error('RESEND_API_KEY is missing in environment variables');
         }
 
-        const mailOptions = {
-            from: `"${emailConfig.addresses.noReply}" <${emailConfig.addresses.noReply}>`,
-            to,
-            subject,
-            text,
-            html,
+        logger.info(`📤 Sending email via Resend API to: ${to} | Subject: "${subject}"`);
+
+        const emailData = {
+            from: 'EdgeStone Support <support@edgestone.in>', // Verify this domain in Resend
+            to: Array.isArray(to) ? to : [to],
+            subject: subject,
+            html: html,
+            text: text,
+            headers: {}
         };
 
-        // Add email threading headers if provided
-        if (inReplyTo || references) {
-            mailOptions.headers = {};
-            if (inReplyTo) {
-                mailOptions.headers['In-Reply-To'] = inReplyTo;
-            }
-            if (references) {
-                mailOptions.headers['References'] = references;
-            }
+        // Add threading headers
+        if (inReplyTo) emailData.headers['In-Reply-To'] = inReplyTo;
+        if (references) emailData.headers['References'] = references;
+
+        const { data, error } = await resend.emails.send(emailData);
+
+        if (error) {
+            logger.error(`❌ Resend API Error: ${error.message}`, { error });
+            throw new Error(`Resend API Error: ${error.message}`);
         }
 
-        logger.info(`📤 Attempting to send email to ${to} with subject: "${subject}"`);
-        const info = await transporter.sendMail(mailOptions);
-        logger.info(`📧 Email sent successfully via SMTP: ${info.messageId} to ${to}`);
-        logger.info(`   Response: ${info.response}`);
+        logger.info(`✅ Email sent successfully via Resend. ID: ${data.id}`);
+        return data;
 
-        // DO NOT close the connection - let connection pooling handle it
-        // transporter.close(); // REMOVED for connection pooling
-
-        return info;
     } catch (error) {
-        // Comprehensive error logging for debugging production issues
-        logger.error('❌ ========================================');
-        logger.error('❌ SMTP EMAIL SEND FAILURE');
-        logger.error('❌ ========================================');
-        logger.error(`❌ Error Type: ${error.name}`);
-        logger.error(`❌ Error Message: ${error.message}`);
-        logger.error(`❌ Error Code: ${error.code || 'N/A'}`);
-        logger.error(`❌ Command: ${error.command || 'N/A'}`);
-        logger.error(`❌ Response: ${error.response || 'N/A'}`);
-        logger.error(`❌ Response Code: ${error.responseCode || 'N/A'}`);
-        logger.error(`❌ Stack Trace:`, error.stack);
-        logger.error('❌ ========================================');
-        logger.error(`❌ SMTP Config Used:`);
-        logger.error(`   Host: ${emailConfig.smtp.host}`);
-        logger.error(`   Port: ${emailConfig.smtp.port}`);
-        logger.error(`   Secure: ${emailConfig.smtp.secure}`);
-        logger.error(`   RequireTLS: ${emailConfig.smtp.requireTLS}`);
-        logger.error(`   User: ${emailConfig.smtp.auth.user}`);
-        logger.error('❌ ========================================');
-
-        // Check for common Railway/cloud platform issues
-        if (error.code === 'ETIMEDOUT' || error.code === 'ECONNECTION') {
-            logger.error('⚠️ POTENTIAL ISSUE: Railway may be blocking SMTP ports (587/465)');
-            logger.error('⚠️ RECOMMENDATION: Consider using Zoho Mail API or a transactional email service like:');
-            logger.error('   - SendGrid (https://sendgrid.com)');
-            logger.error('   - Mailgun (https://mailgun.com)');
-            logger.error('   - AWS SES (https://aws.amazon.com/ses)');
-            logger.error('   - Resend (https://resend.com)');
-        }
-
-        // DO NOT close on error either - let pooling handle it
-        // transporter.close(); // REMOVED for connection pooling
-
+        logger.error(`❌ Failed to send email: ${error.message}`, { stack: error.stack });
         throw error;
     }
 };
