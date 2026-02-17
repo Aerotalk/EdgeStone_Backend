@@ -18,10 +18,23 @@ const sendEmail = async ({ to, subject, html, text, inReplyTo, references }) => 
     const transporter = createTransporter();
 
     try {
-        // Skip verification on Railway - it's causing 60s+ timeouts
-        // Connection will be verified implicitly when sendMail is called
-        // await transporter.verify();
-        // logger.info('✅ SMTP connection verified');
+        // Verify SMTP connection before sending (with timeout protection)
+        logger.info('🔍 Verifying SMTP connection...');
+        const verifyTimeout = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('SMTP verification timeout after 30s')), 30000)
+        );
+
+        try {
+            await Promise.race([
+                transporter.verify(),
+                verifyTimeout
+            ]);
+            logger.info('✅ SMTP connection verified successfully');
+        } catch (verifyError) {
+            logger.error(`⚠️ SMTP verification failed: ${verifyError.message}`);
+            logger.error(`   This may indicate Railway is blocking SMTP ports or Zoho credentials are invalid`);
+            // Continue anyway - sendMail will fail with more details if there's a real issue
+        }
 
         const mailOptions = {
             from: `"${emailConfig.addresses.noReply}" <${emailConfig.addresses.noReply}>`,
@@ -42,16 +55,49 @@ const sendEmail = async ({ to, subject, html, text, inReplyTo, references }) => 
             }
         }
 
+        logger.info(`📤 Attempting to send email to ${to} with subject: "${subject}"`);
         const info = await transporter.sendMail(mailOptions);
         logger.info(`📧 Email sent successfully via SMTP: ${info.messageId} to ${to}`);
+        logger.info(`   Response: ${info.response}`);
 
-        // Close the connection after sending
-        transporter.close();
+        // DO NOT close the connection - let connection pooling handle it
+        // transporter.close(); // REMOVED for connection pooling
 
         return info;
     } catch (error) {
-        logger.error(`❌ Error sending email: ${error.message}`, { stack: error.stack });
-        transporter.close(); // Ensure connection is closed even on error
+        // Comprehensive error logging for debugging production issues
+        logger.error('❌ ========================================');
+        logger.error('❌ SMTP EMAIL SEND FAILURE');
+        logger.error('❌ ========================================');
+        logger.error(`❌ Error Type: ${error.name}`);
+        logger.error(`❌ Error Message: ${error.message}`);
+        logger.error(`❌ Error Code: ${error.code || 'N/A'}`);
+        logger.error(`❌ Command: ${error.command || 'N/A'}`);
+        logger.error(`❌ Response: ${error.response || 'N/A'}`);
+        logger.error(`❌ Response Code: ${error.responseCode || 'N/A'}`);
+        logger.error(`❌ Stack Trace:`, error.stack);
+        logger.error('❌ ========================================');
+        logger.error(`❌ SMTP Config Used:`);
+        logger.error(`   Host: ${emailConfig.smtp.host}`);
+        logger.error(`   Port: ${emailConfig.smtp.port}`);
+        logger.error(`   Secure: ${emailConfig.smtp.secure}`);
+        logger.error(`   RequireTLS: ${emailConfig.smtp.requireTLS}`);
+        logger.error(`   User: ${emailConfig.smtp.auth.user}`);
+        logger.error('❌ ========================================');
+
+        // Check for common Railway/cloud platform issues
+        if (error.code === 'ETIMEDOUT' || error.code === 'ECONNECTION') {
+            logger.error('⚠️ POTENTIAL ISSUE: Railway may be blocking SMTP ports (587/465)');
+            logger.error('⚠️ RECOMMENDATION: Consider using Zoho Mail API or a transactional email service like:');
+            logger.error('   - SendGrid (https://sendgrid.com)');
+            logger.error('   - Mailgun (https://mailgun.com)');
+            logger.error('   - AWS SES (https://aws.amazon.com/ses)');
+            logger.error('   - Resend (https://resend.com)');
+        }
+
+        // DO NOT close on error either - let pooling handle it
+        // transporter.close(); // REMOVED for connection pooling
+
         throw error;
     }
 };

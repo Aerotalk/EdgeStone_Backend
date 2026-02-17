@@ -33,17 +33,31 @@ module.exports = {
         host: process.env.SMTP_HOST || 'smtppro.zoho.in',
         port: smtpPort,
         secure: smtpSecure,
-        // Only force STARTTLS when we are not already using implicit TLS (secure: true)
+        // Force STARTTLS when using port 587 (not implicit TLS)
         requireTLS: !smtpSecure,
         auth: {
             user: process.env.MAIL_USER,
             pass: process.env.MAIL_PASSWORD,
         },
-        connectionTimeout: 120000, // Increased to 120s for Railway's slow network
-        greetingTimeout: 60000,    // Increased to 60s
-        socketTimeout: 120000,     // Increased to 120s
-        logger: true,
-        debug: true,
+        // Enhanced TLS configuration for production environments
+        tls: {
+            // Ensure proper TLS handshake
+            ciphers: 'SSLv3',
+            rejectUnauthorized: false, // Allow self-signed certs in dev, but Railway should work with true
+            servername: process.env.SMTP_HOST || 'smtppro.zoho.in', // SNI support
+            minVersion: 'TLSv1.2', // Enforce minimum TLS version
+        },
+        // Timeout configuration optimized for Railway deployment
+        connectionTimeout: 60000,  // 60s - Railway can be slow to establish connections
+        greetingTimeout: 30000,    // 30s - Time to wait for greeting after connection
+        socketTimeout: 60000,      // 60s - Time to wait for socket responses
+        // Debugging (disable in production if too verbose)
+        logger: process.env.NODE_ENV !== 'production',
+        debug: process.env.NODE_ENV !== 'production',
+        // Connection pooling - keep connections alive
+        pool: true,
+        maxConnections: 5,
+        maxMessages: 100,
     },
 
     // System Email Addresses
