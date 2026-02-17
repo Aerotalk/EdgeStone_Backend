@@ -16,10 +16,11 @@ const sendEmail = async ({ to, subject, html, text, inReplyTo, references }) => 
             throw new Error('RESEND_API_KEY is missing in environment variables');
         }
 
-        logger.info(`📤 Sending email via Resend API to: ${to} | Subject: "${subject}"`);
+        const fromAddress = process.env.RESEND_FROM_EMAIL || 'EdgeStone Support <support@edgestone.in>';
+        logger.info(`📤 Sending email via Resend API from: ${fromAddress} to: ${to} | Subject: "${subject}"`);
 
         const emailData = {
-            from: 'EdgeStone Support <support@edgestone.in>', // Verify this domain in Resend
+            from: fromAddress, // Must match verified domain in Resend
             to: Array.isArray(to) ? to : [to],
             subject: subject,
             html: html,
