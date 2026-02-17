@@ -1,3 +1,9 @@
+const Imap = require('imap');
+const { simpleParser } = require('mailparser');
+const emailConfig = require('../config/emailConfig');
+const ticketService = require('./ticketService');
+const logger = require('../utils/logger');
+
 // --- Sender (Resend API) ---
 const { Resend } = require('resend');
 
