@@ -16,7 +16,7 @@ describe('E2E: Ticket Flow', () => {
 
     beforeAll(async () => {
         token = await helpers.login();
-    });
+    }, 30000); // 30s timeout for login
 
     const headers = () => ({ 'Authorization': `Bearer ${token}` });
 

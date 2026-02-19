@@ -1,0 +1,24 @@
+{
+  "data": null,
+  "error": {
+    "statusCode": 403,
+    "message": "The edgestone.in domain is not verified. Please, add and verify your domain on https://resend.com/domains",
+    "name": "validation_error"
+  },
+  "headers": {
+    "cf-cache-status": "DYNAMIC",
+    "cf-ray": "9cfd560799b0f27f-BOM",
+    "connection": "keep-alive",
+    "content-encoding": "br",
+    "content-type": "application/json",
+    "date": "Wed, 18 Feb 2026 11:55:32 GMT",
+    "ratelimit-limit": "2",
+    "ratelimit-policy": "2;w=1",
+    "ratelimit-remaining": "1",
+    "ratelimit-reset": "1",
+    "server": "cloudflare",
+    "transfer-encoding": "chunked",
+    "x-resend-daily-quota": "0",
+    "x-resend-monthly-quota": "0"
+  }
+}

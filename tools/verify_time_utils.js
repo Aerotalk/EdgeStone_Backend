@@ -1,4 +1,4 @@
-const { getISTDate, getISTString, getISTISOString } = require('./utils/timeUtils');
+const { getISTDate, getISTString, getISTISOString } = require('../utils/timeUtils');
 
 console.log("Testing IST Time Utility:");
 console.log("Current System Time:", new Date().toString());

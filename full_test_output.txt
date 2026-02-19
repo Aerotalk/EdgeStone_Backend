@@ -1,0 +1,75 @@
+
+> backend@1.0.0 test:e2e
+> jest e2e_tests/
+
+FAIL e2e_tests/suites/ticket_flow.test.js (5.837 s)
+  ● Console
+
+    console.log
+      [dotenv@17.2.3] injecting env (20) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+
+      at _log (node_modules/dotenv/lib/main.js:142:11)
+
+  ● E2E: Ticket Flow › Create Ticket via API
+
+    thrown: "Exceeded timeout of 5000 ms for a hook.
+    Add a timeout value to this test to increase the timeout, if this is a long-running test. See https://jestjs.io/docs/api#testname-fn-timeout."
+
+    [0m [90m 15 |[39m     }[33m;[39m
+     [90m 16 |[39m
+    [31m[1m>[22m[39m[90m 17 |[39m     beforeAll([36masync[39m () [33m=>[39m {
+     [90m    |[39m     [31m[1m^[22m[39m
+     [90m 18 |[39m         token [33m=[39m [36mawait[39m helpers[33m.[39mlogin()[33m;[39m
+     [90m 19 |[39m     })[33m;[39m
+     [90m 20 |[39m[0m
+
+      at beforeAll (e2e_tests/suites/ticket_flow.test.js:17:5)
+      at Object.describe (e2e_tests/suites/ticket_flow.test.js:5:1)
+
+  ● E2E: Ticket Flow › Reply to Ticket (if exists)
+
+    thrown: "Exceeded timeout of 5000 ms for a hook.
+    Add a timeout value to this test to increase the timeout, if this is a long-running test. See https://jestjs.io/docs/api#testname-fn-timeout."
+
+    [0m [90m 15 |[39m     }[33m;[39m
+     [90m 16 |[39m
+    [31m[1m>[22m[39m[90m 17 |[39m     beforeAll([36masync[39m () [33m=>[39m {
+     [90m    |[39m     [31m[1m^[22m[39m
+     [90m 18 |[39m         token [33m=[39m [36mawait[39m helpers[33m.[39mlogin()[33m;[39m
+     [90m 19 |[39m     })[33m;[39m
+     [90m 20 |[39m[0m
+
+      at beforeAll (e2e_tests/suites/ticket_flow.test.js:17:5)
+      at Object.describe (e2e_tests/suites/ticket_flow.test.js:5:1)
+
+PASS e2e_tests/suites/crud.test.js (9.224 s)
+  ● Console
+
+    console.log
+      [dotenv@17.2.3] injecting env (20) from .env -- tip: ⚙️  override existing env vars with { override: true }
+
+      at _log (node_modules/dotenv/lib/main.js:142:11)
+
+FAIL e2e_tests/suites/email_flow.test.js (36.872 s)
+  ● Console
+
+    console.log
+      [dotenv@17.2.3] injecting env (20) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+
+      at _log (node_modules/dotenv/lib/main.js:142:11)
+
+    console.log
+      Email sent: E2E Auto Ticket 1o2ct6wg
+
+      at Object.log (e2e_tests/suites/email_flow.test.js:41:21)
+
+  ● E2E: Email Flow (SMTP/IMAP) › Send Email -> Ticket Creation
+
+    connect ETIMEDOUT 66.33.22.135:443
+
+
+Test Suites: 2 failed, 1 passed, 3 total
+Tests:       3 failed, 3 passed, 6 total
+Snapshots:   0 total
+Time:        37.525 s
+Ran all test suites matching e2e_tests/.

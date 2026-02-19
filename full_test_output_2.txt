@@ -1,0 +1,104 @@
+
+> backend@1.0.0 test:e2e
+> jest e2e_tests/
+
+FAIL e2e_tests/suites/ticket_flow.test.js (5.972 s)
+  ● Console
+
+    console.log
+      [dotenv@17.2.3] injecting env (20) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+
+      at _log (node_modules/dotenv/lib/main.js:142:11)
+
+    console.log
+      Skipping Create Ticket API test: Controller is stubbed.
+
+      at Object.log (e2e_tests/suites/ticket_flow.test.js:57:17)
+
+  ● E2E: Ticket Flow › Reply to Ticket (if exists)
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 201
+    Received: 500
+
+    [0m [90m 69 |[39m                 [33m.[39msend({ message[33m:[39m [32m`E2E Reply ${suffix}`[39m })[33m;[39m
+     [90m 70 |[39m
+    [31m[1m>[22m[39m[90m 71 |[39m             expect(replyRes[33m.[39mstatus)[33m.[39mtoBe([35m201[39m)[33m;[39m
+     [90m    |[39m                                     [31m[1m^[22m[39m
+     [90m 72 |[39m             [90m// Verify reply?[39m
+     [90m 73 |[39m             [90m// `ticketController.replyTicket` returns `reply` object.[39m
+     [90m 74 |[39m             expect(replyRes[33m.[39mbody[33m.[39mreply)[33m.[39mtoBeTruthy()[33m;[39m[0m
+
+      at Object.toBe (e2e_tests/suites/ticket_flow.test.js:71:37)
+
+FAIL e2e_tests/suites/crud.test.js (14.618 s)
+  ● Console
+
+    console.log
+      [dotenv@17.2.3] injecting env (20) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+
+      at _log (node_modules/dotenv/lib/main.js:142:11)
+
+  ● E2E: Admin CRUD Operations › Create and Fetch Agent
+
+    thrown: "Exceeded timeout of 5000 ms for a test.
+    Add a timeout value to this test to increase the timeout, if this is a long-running test. See https://jestjs.io/docs/api#testname-fn-timeout."
+
+    [0m [90m 31 |[39m
+     [90m 32 |[39m     [90m// --- Agent CRUD ---[39m
+    [31m[1m>[22m[39m[90m 33 |[39m     test([32m'Create and Fetch Agent'[39m[33m,[39m [36masync[39m () [33m=>[39m {
+     [90m    |[39m     [31m[1m^[22m[39m
+     [90m 34 |[39m         [90m// Create[39m
+     [90m 35 |[39m         [36mconst[39m createRes [33m=[39m [36mawait[39m request(config[33m.[39mbaseURL)
+     [90m 36 |[39m             [33m.[39mpost([32m'/api/agents'[39m)[0m
+
+      at test (e2e_tests/suites/crud.test.js:33:5)
+      at Object.describe (e2e_tests/suites/crud.test.js:5:1)
+
+  ● E2E: Admin CRUD Operations › Create and Update Client
+
+    thrown: "Exceeded timeout of 5000 ms for a test.
+    Add a timeout value to this test to increase the timeout, if this is a long-running test. See https://jestjs.io/docs/api#testname-fn-timeout."
+
+    [0m [90m 53 |[39m
+     [90m 54 |[39m     [90m// --- Client CRUD ---[39m
+    [31m[1m>[22m[39m[90m 55 |[39m     test([32m'Create and Update Client'[39m[33m,[39m [36masync[39m () [33m=>[39m {
+     [90m    |[39m     [31m[1m^[22m[39m
+     [90m 56 |[39m         [90m// Create[39m
+     [90m 57 |[39m         [36mconst[39m createRes [33m=[39m [36mawait[39m request(config[33m.[39mbaseURL)
+     [90m 58 |[39m             [33m.[39mpost([32m'/api/clients'[39m)[0m
+
+      at test (e2e_tests/suites/crud.test.js:55:5)
+      at Object.describe (e2e_tests/suites/crud.test.js:5:1)
+
+PASS e2e_tests/suites/email_flow.test.js (17.098 s)
+  ● Console
+
+    console.log
+      [dotenv@17.2.3] injecting env (20) from .env -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+
+      at _log (node_modules/dotenv/lib/main.js:142:11)
+
+    console.log
+      Email sent: E2E Auto Ticket 0bds204q
+
+      at Object.log (e2e_tests/suites/email_flow.test.js:41:21)
+
+    console.log
+      Ticket Verified: #1020
+
+      at Object.log (e2e_tests/suites/email_flow.test.js:78:17)
+
+A worker process has failed to exit gracefully and has been force exited. This is likely caused by tests leaking due to improper teardown. Try running with --detectOpenHandles to find leaks. Active timers can also cause this, ensure that .unref() was called on them.
+
+Test Suites: 2 failed, 1 passed, 3 total
+Tests:       3 failed, 3 passed, 6 total
+Snapshots:   0 total
+Time:        18.261 s, estimated 37 s
+Ran all test suites matching e2e_tests/.
+npm notice
+npm notice New major version of npm available! 10.9.3 -> 11.10.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.10.0
+npm notice To update run: npm install -g npm@11.10.0
+npm notice

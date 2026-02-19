@@ -1,49 +1,164 @@
 const Imap = require('imap');
 const { simpleParser } = require('mailparser');
+const nodemailer = require('nodemailer');
 const emailConfig = require('../config/emailConfig');
 const ticketService = require('./ticketService');
 const logger = require('../utils/logger');
-
-// --- Sender (Resend API) ---
 const { Resend } = require('resend');
+const { SendMailClient } = require('zeptomail');
 
-// Initialize Resend with API Key from environment
-const resend = new Resend(process.env.RESEND_API_KEY);
+// --- ZeptoMail Configuration ---
+const zeptoClient = process.env.ZEPTO_MAIL_TOKEN ? new SendMailClient({
+    url: process.env.ZEPTO_API_URL || "https://api.zeptomail.in/v1.1/email",
+    token: process.env.ZEPTO_MAIL_TOKEN,
+}) : null;
+
+// --- Resend Configuration ---
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+
+// --- Sender (Zoho Mail SMTP Pool) ---
+// Create fresh transporter for each email to avoid stale connections
+const createTransporter = () => {
+    // Log effective SMTP config (without password)
+    logger.debug(`SMTP config in use: host=${emailConfig.smtp.host}, port=${emailConfig.smtp.port}, secure=${emailConfig.smtp.secure}, user=${emailConfig.smtp.auth && emailConfig.smtp.auth.user}`);
+    return nodemailer.createTransport(emailConfig.smtp);
+};
 
 const sendEmail = async ({ to, subject, html, text, inReplyTo, references }) => {
+    const provider = process.env.EMAIL_PROVIDER || 'smtp';
+    logger.info(`📧 Sending email using provider: ${provider.toUpperCase()}`);
+
+    if (provider === 'resend') {
+        if (!resend) {
+            throw new Error('❌ Resend API Key is missing, but EMAIL_PROVIDER is set to "resend".');
+        }
+        return await sendViaResend({ to, subject, html, text, inReplyTo, references });
+    } else if (provider === 'zepto') {
+        if (!zeptoClient) {
+            throw new Error('❌ ZeptoMail Token is missing, but EMAIL_PROVIDER is set to "zepto".');
+        }
+        return await sendViaZepto({ to, subject, html, text, inReplyTo, references });
+    } else {
+        return await sendViaSMTP({ to, subject, html, text, inReplyTo, references });
+    }
+};
+
+const sendViaZepto = async ({ to, subject, html, text, inReplyTo, references }) => {
     try {
-        if (!process.env.RESEND_API_KEY) {
-            throw new Error('RESEND_API_KEY is missing in environment variables');
+        const payload = {
+            from: {
+                address: process.env.ZEPTO_FROM_EMAIL || 'noreply@edgestone.in',
+                name: "EdgeStone Support"
+            },
+            to: [
+                {
+                    email_address: {
+                        address: to,
+                        name: to // Ideally should be name, but using email if name logic is complex
+                    }
+                }
+            ],
+            subject: subject,
+            htmlbody: html,
+            textbody: text,
+        };
+
+        // ZeptoMail header support is different, check documentation if needed.
+        // For now, basic headers if library supports them as 'headers' in payload.
+        // SendMailClient payload structure: { from, to, subject, htmlbody, textbody, track_clicks, track_opens, headers }
+
+        const headers = {};
+        if (inReplyTo) headers['In-Reply-To'] = inReplyTo;
+        if (references) headers['References'] = references;
+        if (Object.keys(headers).length > 0) payload.headers = headers;
+
+        logger.info(`📤 Sending email via ZeptoMail to: ${to} | Subject: "${subject}"`);
+
+        const response = await zeptoClient.sendMail(payload);
+
+        logger.info(`✅ Email sent successfully via ZeptoMail. Response: ${JSON.stringify(response)}`);
+        return response;
+
+    } catch (err) {
+        logger.error(`❌ ZeptoMail Failed: ${err.message}`, { stack: err.stack });
+        throw err;
+    }
+}
+
+
+const sendViaResend = async ({ to, subject, html, text, inReplyTo, references }) => {
+    try {
+        const payload = {
+            from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+            to,
+            subject,
+            html,
+            text
+        };
+
+        if (process.env.RESEND_REPLY_TO) {
+            payload.reply_to = process.env.RESEND_REPLY_TO;
         }
 
-        const fromAddress = process.env.RESEND_FROM_EMAIL || 'EdgeStone Support <support@edgestone.in>';
-        logger.info(`📤 Sending email via Resend API from: ${fromAddress} to: ${to} | Subject: "${subject}"`);
+        const headers = {};
+        if (inReplyTo) headers['In-Reply-To'] = inReplyTo;
+        if (references) headers['References'] = references;
+        if (Object.keys(headers).length > 0) payload.headers = headers;
 
-        const emailData = {
-            from: fromAddress, // Must match verified domain in Resend
-            to: Array.isArray(to) ? to : [to],
-            subject: subject,
-            html: html,
-            text: text,
+        logger.info(`📤 Sending email via Resend to: ${to} | Subject: "${subject}"`);
+        const { data, error } = await resend.emails.send(payload);
+
+        if (error) {
+            logger.error(`❌ Resend API Error: ${error.message}`);
+            throw new Error(error.message);
+        }
+
+        logger.info(`✅ Email sent successfully via Resend: ${data.id}`);
+        return data;
+    } catch (err) {
+        logger.error(`❌ Resend Failed: ${err.message}`, { stack: err.stack });
+        throw err;
+    }
+}
+
+const sendViaSMTP = async ({ to, subject, html, text, inReplyTo, references }) => {
+    const transporter = createTransporter();
+
+    try {
+        // Verify connection first (with short timeout)
+        await Promise.race([
+            transporter.verify(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP Verify Timeout')), 10000))
+        ]);
+
+        logger.info(`📤 Sending email via SMTP to: ${to} | Subject: "${subject}"`);
+
+        const mailOptions = {
+            from: `"${emailConfig.addresses.noReply}" <${emailConfig.addresses.noReply}>`,
+            to,
+            subject,
+            text,
+            html,
             headers: {}
         };
 
-        // Add threading headers
-        if (inReplyTo) emailData.headers['In-Reply-To'] = inReplyTo;
-        if (references) emailData.headers['References'] = references;
+        if (inReplyTo) mailOptions.headers['In-Reply-To'] = inReplyTo;
+        if (references) mailOptions.headers['References'] = references;
 
-        const { data, error } = await resend.emails.send(emailData);
-
-        if (error) {
-            logger.error(`❌ Resend API Error: ${error.message}`, { error });
-            throw new Error(`Resend API Error: ${error.message}`);
-        }
-
-        logger.info(`✅ Email sent successfully via Resend. ID: ${data.id}`);
-        return data;
+        const info = await transporter.sendMail(mailOptions);
+        logger.info(`✅ Email sent successfully via SMTP: ${info.messageId}`);
+        transporter.close(); // Clean up connection
+        return info;
 
     } catch (error) {
-        logger.error(`❌ Failed to send email: ${error.message}`, { stack: error.stack });
+        logger.error(`❌ SMTP Failed: ${error.message}`, { stack: error.stack });
+
+        // Critical Error Analysis
+        if (error.code === 'ETIMEDOUT') {
+            logger.error('⚠️ FATAL: Railway blocked Port 465/587. SMTP is not possible.');
+        }
+
+        transporter.close();
         throw error;
     }
 };
