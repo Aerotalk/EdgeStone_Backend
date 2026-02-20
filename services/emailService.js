@@ -19,29 +19,68 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 // --- Sender (Zoho Mail SMTP Pool) ---
 // Create fresh transporter for each email to avoid stale connections
 const createTransporter = () => {
-    // Log effective SMTP config (without password)
     logger.debug(`SMTP config in use: host=${emailConfig.smtp.host}, port=${emailConfig.smtp.port}, secure=${emailConfig.smtp.secure}, user=${emailConfig.smtp.auth && emailConfig.smtp.auth.user}`);
     return nodemailer.createTransport(emailConfig.smtp);
 };
 
+/**
+ * sendEmail — Primary email dispatch.
+ * Provider priority (controlled by EMAIL_PROVIDER env var):
+ *   1. zepto  → ZeptoMail HTTP API  (default — works on any VPS, no port restrictions)
+ *   2. resend → Resend HTTP API     (fallback if zepto is unavailable)
+ *   3. smtp   → Zoho SMTP           (only use if both API providers fail/unavailable)
+ *
+ * Auto-fallback: if the chosen provider fails, the next available one is tried automatically.
+ */
 const sendEmail = async ({ to, subject, html, text, inReplyTo, references }) => {
-    const provider = process.env.EMAIL_PROVIDER || 'smtp';
-    logger.info(`📧 Sending email using provider: ${provider.toUpperCase()}`);
+    // Default to 'zepto' — SMTP is blocked on most VPS providers (port 465/587)
+    const provider = (process.env.EMAIL_PROVIDER || 'zepto').toLowerCase().trim();
+    logger.info(`📧 Sending email — provider: ${provider.toUpperCase()} | to: ${to} | subject: "${subject}"`);
 
-    if (provider === 'resend') {
-        if (!resend) {
-            throw new Error('❌ Resend API Key is missing, but EMAIL_PROVIDER is set to "resend".');
-        }
-        return await sendViaResend({ to, subject, html, text, inReplyTo, references });
-    } else if (provider === 'zepto') {
-        if (!zeptoClient) {
-            throw new Error('❌ ZeptoMail Token is missing, but EMAIL_PROVIDER is set to "zepto".');
-        }
-        return await sendViaZepto({ to, subject, html, text, inReplyTo, references });
+    // Build ordered provider list based on config
+    const providerOrder = [];
+
+    if (provider === 'zepto') {
+        if (zeptoClient) providerOrder.push('zepto');
+        if (resend) providerOrder.push('resend');
+        providerOrder.push('smtp');
+    } else if (provider === 'resend') {
+        if (resend) providerOrder.push('resend');
+        if (zeptoClient) providerOrder.push('zepto');
+        providerOrder.push('smtp');
     } else {
-        return await sendViaSMTP({ to, subject, html, text, inReplyTo, references });
+        // smtp first, then HTTP fallbacks
+        providerOrder.push('smtp');
+        if (zeptoClient) providerOrder.push('zepto');
+        if (resend) providerOrder.push('resend');
     }
+
+    const args = { to, subject, html, text, inReplyTo, references };
+    let lastError;
+
+    for (const p of providerOrder) {
+        try {
+            if (p === 'zepto') {
+                if (!zeptoClient) { logger.warn('⚠️ ZeptoMail token missing — skipping'); continue; }
+                return await sendViaZepto(args);
+            } else if (p === 'resend') {
+                if (!resend) { logger.warn('⚠️ Resend API key missing — skipping'); continue; }
+                return await sendViaResend(args);
+            } else {
+                return await sendViaSMTP(args);
+            }
+        } catch (err) {
+            logger.error(`❌ Provider "${p.toUpperCase()}" failed: ${err.message}`);
+            lastError = err;
+            logger.warn(`⚠️ Trying next provider in fallback chain...`);
+        }
+    }
+
+    // All providers exhausted
+    logger.error(`🚨 All email providers failed. Last error: ${lastError?.message}`);
+    throw lastError || new Error('All email providers failed');
 };
+
 
 const sendViaZepto = async ({ to, subject, html, text, inReplyTo, references }) => {
     try {

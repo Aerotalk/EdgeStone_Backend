@@ -179,7 +179,7 @@ const createTicketFromEmail = async (emailData) => {
             } catch (error) {
                 logger.error(`❌ FAILED to send auto-reply for Ticket ${ticket.ticketId}`);
                 logger.error(`❌ Reason: ${error.message}`);
-                logger.error(`⚠️ Please check SMTP configuration if this persists.`, { stack: error.stack });
+                logger.error(`⚠️ Check EMAIL_PROVIDER and provider credentials (ZEPTO_MAIL_TOKEN / RESEND_API_KEY).`, { stack: error.stack });
             }
         }, 5000); // 5 seconds delay
 

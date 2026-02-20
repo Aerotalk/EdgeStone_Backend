@@ -26,5 +26,9 @@ COPY . .
 # Expose the port the app runs on
 EXPOSE 5000
 
+# Health check so Docker Compose waits until the API is ready
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:5000/', (r) => process.exit(r.statusCode === 200 ? 0 : 1))" || exit 1
+
 # Define the command to run the app
 CMD ["npm", "start"]
