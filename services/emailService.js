@@ -103,11 +103,6 @@ const sendViaZepto = async ({ to, subject, html, text, inReplyTo, references }) 
             textbody: text,
         };
 
-        const headers = {};
-        if (inReplyTo) headers['In-Reply-To'] = inReplyTo;
-        if (references) headers['References'] = references;
-        if (Object.keys(headers).length > 0) payload.headers = headers;
-
         logger.info(`📤 Sending email via ZeptoMail from: ${fromAddress} | to: ${to} | Subject: "${subject}"`);
 
         const response = await zeptoClient.sendMail(payload);
