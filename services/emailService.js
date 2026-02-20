@@ -84,16 +84,17 @@ const sendEmail = async ({ to, subject, html, text, inReplyTo, references }) => 
 
 const sendViaZepto = async ({ to, subject, html, text, inReplyTo, references }) => {
     try {
+        const fromAddress = process.env.ZEPTO_FROM_EMAIL || 'noreply@edgestone.in';
         const payload = {
             from: {
-                address: process.env.ZEPTO_FROM_EMAIL || 'noreply@edgestone.in',
-                name: "EdgeStone Support"
+                address: fromAddress,
+                name: 'EdgeStone Support'
             },
             to: [
                 {
                     email_address: {
                         address: to,
-                        name: to // Ideally should be name, but using email if name logic is complex
+                        name: to
                     }
                 }
             ],
@@ -102,16 +103,12 @@ const sendViaZepto = async ({ to, subject, html, text, inReplyTo, references }) 
             textbody: text,
         };
 
-        // ZeptoMail header support is different, check documentation if needed.
-        // For now, basic headers if library supports them as 'headers' in payload.
-        // SendMailClient payload structure: { from, to, subject, htmlbody, textbody, track_clicks, track_opens, headers }
-
         const headers = {};
         if (inReplyTo) headers['In-Reply-To'] = inReplyTo;
         if (references) headers['References'] = references;
         if (Object.keys(headers).length > 0) payload.headers = headers;
 
-        logger.info(`📤 Sending email via ZeptoMail to: ${to} | Subject: "${subject}"`);
+        logger.info(`📤 Sending email via ZeptoMail from: ${fromAddress} | to: ${to} | Subject: "${subject}"`);
 
         const response = await zeptoClient.sendMail(payload);
 
@@ -119,10 +116,36 @@ const sendViaZepto = async ({ to, subject, html, text, inReplyTo, references }) 
         return response;
 
     } catch (err) {
-        logger.error(`❌ ZeptoMail Failed: ${err.message}`, { stack: err.stack });
-        throw err;
+        // ZeptoMail SDK NEVER throws a proper Error object. It rejects with:
+        //   - A plain string  (validation failure, e.g. "Send Mail token cannot be empty")
+        //   - A parsed JSON object (API error response body)
+        let errMessage;
+        let rawDump;
+
+        if (typeof err === 'string') {
+            // Validation error path (SDK line 264: reject(instance.errorText))
+            errMessage = err;
+            rawDump = err;
+        } else if (err && typeof err === 'object') {
+            // API error path (SDK line 291: reject(parsedJsonErrorBody))
+            errMessage =
+                err?.message ||
+                err?.error?.message ||
+                err?.error?.details?.[0]?.message ||
+                err?.error?.details?.[0]?.sub_message ||
+                JSON.stringify(err?.error || err);
+            rawDump = JSON.stringify(err);
+        } else {
+            errMessage = String(err);
+            rawDump = String(err);
+        }
+
+        logger.error(`❌ ZeptoMail Failed: ${errMessage}`);
+        logger.error(`❌ ZeptoMail raw error dump: ${rawDump}`);
+        throw new Error(`ZeptoMail: ${errMessage}`);
     }
 }
+
 
 
 const sendViaResend = async ({ to, subject, html, text, inReplyTo, references }) => {
