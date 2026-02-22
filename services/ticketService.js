@@ -251,10 +251,10 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName) => {
 
         logger.info(`✅ Reply added to database for Ticket ${ticket.ticketId}`);
 
-        // 3. Send Email to Client
+        // 3. Send Email to Client via Zoho Mail OAuth (supports In-Reply-To/References for threading)
         const emailService = require('./emailService');
-        logger.info(`📧 Sending Reply Email to: ${ticket.email} | Subject: Re: ${ticket.header}`);
-        await emailService.sendEmail({
+        logger.info(`📧 Sending Agent Reply Email to: ${ticket.email} | Subject: Re: ${ticket.header}`);
+        await emailService.sendAgentReplyEmail({
             to: ticket.email,
             subject: `Re: ${ticket.header} [${ticket.ticketId}]`,
             html: `
@@ -266,8 +266,8 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName) => {
                 </div>
             `,
             text: message,
-            inReplyTo: ticket.messageId,
-            references: ticket.messageId
+            inReplyTo: ticket.messageId,   // Threads reply into client's original email
+            references: ticket.messageId   // Chains the full conversation thread
         });
 
         logger.info(`📤 Reply email sent to ${ticket.email}`);
