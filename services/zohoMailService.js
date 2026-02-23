@@ -131,6 +131,9 @@ const getAccountId = async () => {
     const url = `${ZOHO_MAIL_BASE}/api/accounts`;
     const result = await httpsRequest(url, { method: 'GET', headers: authHeaders() });
 
+    if (result.status === 401) {
+        throw new Error(`HTTP 401: Zoho token expired — account ID fetch unauthorized.`);
+    }
     if (!result.body?.data?.[0]?.accountId) {
         throw new Error(`Failed to fetch Zoho account ID. Response: ${JSON.stringify(result.body)}`);
     }
