@@ -1,0 +1,40 @@
+﻿[dotenv@17.2.3] injecting env (27) from .env -- tip: ΓÜÖ∩╕Å  override existing env vars with { override: true }
+23/02/2026 01:44:32 [[32minfo[39m] Γä╣∩╕Å : Γ£à zohoMailService: Zoho OAuth credentials loaded successfully.
+=======================================================
+   Zoho Mail OAuth ΓÇö Agent Reply Threading Test
+=======================================================
+  From      : marketing@edgestone.in
+  To        : marketing@edgestone.in
+  inReplyTo : <test-thread-abc123@mail.gmail.com>
+=======================================================
+
+≡ƒôñ  Sending test email via Zoho Mail OAuth...
+23/02/2026 01:44:32 [[32minfo[39m] Γä╣∩╕Å : ≡ƒôº zohoMailService: Preparing agent reply | to: marketing@edgestone.in | subject: "[TEST] Agent Reply Threading ΓÇö EdgeStone"
+23/02/2026 01:44:32 [[32minfo[39m] Γä╣∩╕Å : ≡ƒöì zohoMailService: Fetching Zoho Mail account ID...
+23/02/2026 01:44:32 [[32minfo[39m] Γä╣∩╕Å : Γ£à zohoMailService: Account ID resolved: 6360933000000002002
+23/02/2026 01:44:32 [[32minfo[39m] Γä╣∩╕Å : ≡ƒöì zohoMailService: Searching Zoho for original message | query: messageId:<test-thread-abc123@mail.gmail.com>
+23/02/2026 01:44:33 [[32minfo[39m] Γä╣∩╕Å : Γ£à zohoMailService: Found Zoho message ID: 1771791023093119000
+23/02/2026 01:44:33 [[32minfo[39m] Γä╣∩╕Å : ≡ƒº╡ zohoMailService: Using reply-action for threading | zohoMsgId: 1771791023093119000
+23/02/2026 01:44:33 [[32minfo[39m] Γä╣∩╕Å : Γ£à zohoMailService: Reply-in-thread sent | zohoMsgId: 1771791023093119000 | to: marketing@edgestone.in
+
+Γ£à  Email sent successfully!
+   Response: {
+  "status": {
+    "code": 200,
+    "description": "success"
+  },
+  "data": {
+    "subject": "[TEST] Agent Reply Threading ΓÇö EdgeStone",
+    "action": "reply",
+    "messageId": "1771791272506130300",
+    "fromAddress": "marketing@edgestone.in",
+    "mailFormat": "html",
+    "mailId": "<19c86fd4a1d.520ee8dc57523.5194389768101547543@edgestone.in>",
+    "toAddress": "marketing@edgestone.in",
+    "content": "<p>This is a <strong>test agent reply</strong> sent via Zoho Mail OAuth API.</p>\n                        <p>If email threading works, this reply references message ID:<br/>\n                        <code><test-thread-abc123@mail.gmail.com></code></p>"
+  }
+}
+
+≡ƒÄë  Zoho Mail OAuth integration is working correctly.
+   Agent replies will now include In-Reply-To headers for email threading.
+

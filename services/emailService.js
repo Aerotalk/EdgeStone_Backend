@@ -280,6 +280,13 @@ const fetchNewEmails = (imap, trigger) => {
                         return;
                     }
 
+                    // ── Skip emails from our own domain (auto-reply loops / sent copies) ──
+                    const ownDomain = '@edgestone.in';
+                    if (fromObj.address.toLowerCase().endsWith(ownDomain)) {
+                        logger.info(`🔁 Skipping email from own domain (${fromObj.address}) — not a client email`);
+                        return;
+                    }
+
                     // ── Duplicate suppression ─────────────────────────────────
                     if (messageId && processedMessageIds.has(messageId)) {
                         logger.warn(`⚠️ Skipping duplicate email: ${messageId}`);
