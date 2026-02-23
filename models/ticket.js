@@ -43,6 +43,12 @@ const TicketModel = {
                 ticketId
             }
         });
+    },
+
+    // Find ticket by original email Message-ID (for client reply threading)
+    async findTicketByMessageId(messageId) {
+        if (!messageId) return null;
+        return prisma.ticket.findFirst({ where: { messageId } });
     }
 };
 

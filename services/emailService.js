@@ -302,6 +302,9 @@ const fetchNewEmails = (imap, trigger) => {
                         html: parsed.html || null,
                         date: parsed.date || new Date(),
                         messageId,
+                        // Threading headers — used to detect if this is a reply to an existing ticket
+                        inReplyTo: parsed.inReplyTo || null,
+                        references: parsed.references || null,
                         attachments: parsed.attachments || [],
                     };
 

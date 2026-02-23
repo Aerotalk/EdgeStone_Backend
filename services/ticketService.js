@@ -21,12 +21,110 @@ const generateTicketId = async () => {
     return `#${1000 + count + 1}`;
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// findExistingTicketForReply
+// Checks if an incoming email is a reply to an existing ticket using:
+//   1. In-Reply-To header  → matches Ticket.messageId (most reliable)
+//   2. References header   → checks each ID in the chain
+//   3. Re: subject match   → last resort for clients that strip headers
+// ─────────────────────────────────────────────────────────────────────────────
+const findExistingTicketForReply = async (inReplyTo, references, subject) => {
+    // 1. In-Reply-To: most reliable — direct parent Message-ID
+    if (inReplyTo) {
+        // inReplyTo may be a string "<id@domain>" or already trimmed
+        const cleanId = inReplyTo.trim();
+        const ticket = await TicketModel.findTicketByMessageId(cleanId);
+        if (ticket) {
+            logger.info(`🧵 Reply matched via In-Reply-To: ${cleanId} → Ticket ${ticket.ticketId}`);
+            return ticket;
+        }
+    }
+
+    // 2. References: space/comma-separated chain of parent Message-IDs
+    if (references) {
+        const refIds = (Array.isArray(references) ? references : references.split(/[\s,]+/))
+            .map(r => r.trim())
+            .filter(Boolean);
+        for (const refId of refIds) {
+            const ticket = await TicketModel.findTicketByMessageId(refId);
+            if (ticket) {
+                logger.info(`🧵 Reply matched via References: ${refId} → Ticket ${ticket.ticketId}`);
+                return ticket;
+            }
+        }
+    }
+
+    // 3. Subject fallback: "Re: <original subject>" — strip Re:/Fwd: prefixes and match
+    if (subject) {
+        const stripped = subject.replace(/^(Re|Fwd|FW|RE|FWD):\s*/gi, '').trim();
+        if (stripped) {
+            const allTickets = await TicketModel.findAllTickets();
+            const match = allTickets.find(t =>
+                t.header && t.header.replace(/^(Re|Fwd|FW|RE|FWD):\s*/gi, '').trim() === stripped
+            );
+            if (match) {
+                logger.info(`🧵 Reply matched via subject fallback: "${stripped}" → Ticket ${match.ticketId}`);
+                return match;
+            }
+        }
+    }
+
+    return null;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// appendClientReplyToTicket
+// Appends a client's reply email to an existing ticket's conversation thread.
+// Does NOT send another auto-reply (client already has the ticket open).
+// ─────────────────────────────────────────────────────────────────────────────
+const appendClientReplyToTicket = async (ticket, emailData) => {
+    const { from, fromName, body, html, date } = emailData;
+    const emailReceivedDate = date ? new Date(date) : new Date();
+
+    logger.info(`📩 Appending client reply to existing Ticket ${ticket.ticketId} from ${from}`);
+
+    const reply = await TicketModel.addReply(ticket.id, {
+        text: body || html || '(No Content)',
+        time: emailReceivedDate.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        }),
+        date: emailReceivedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+        author: fromName || from,
+        type: 'client',
+        category: 'client',
+        to: [from],
+    });
+
+    // Log activity
+    const ActivityLogModel = require('../models/activityLog');
+    const now = new Date();
+    await ActivityLogModel.createActivityLog({
+        ticketId: ticket.id,
+        action: 'client_replied',
+        description: `Client ${fromName || from} replied to the ticket via email`,
+        time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        date: now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+        author: fromName || from,
+    });
+
+    logger.info(`✅ Client reply appended to Ticket ${ticket.ticketId}`);
+    return reply;
+};
+
 const createTicketFromEmail = async (emailData) => {
-    const { from, fromName, subject, body, date, messageId } = emailData;
+    const { from, fromName, subject, body, date, messageId, inReplyTo, references } = emailData;
 
     logger.debug(`📥 Processing incoming email from: ${from} | Subject: ${subject}`);
 
     try {
+        // 0. Check if this email is a reply to an existing ticket
+        const existingTicket = await findExistingTicketForReply(inReplyTo, references, subject);
+        if (existingTicket) {
+            return await appendClientReplyToTicket(existingTicket, emailData);
+        }
+
         // 1. Identify Sender
         // Check Client first
         let clientId = null;
