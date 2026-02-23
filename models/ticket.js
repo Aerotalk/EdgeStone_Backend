@@ -49,6 +49,23 @@ const TicketModel = {
     async findTicketByMessageId(messageId) {
         if (!messageId) return null;
         return prisma.ticket.findFirst({ where: { messageId } });
+    },
+
+    // Find a reply by its outgoing Message-ID to match client thread replies
+    async findReplyByMessageId(messageId) {
+        if (!messageId) return null;
+        return prisma.reply.findFirst({
+            where: { messageId },
+            include: { ticket: true }
+        });
+    },
+
+    // Update a reply (used to save the generated messageId after sending)
+    async updateReply(id, updates) {
+        return prisma.reply.update({
+            where: { id },
+            data: updates
+        });
     }
 };
 

@@ -101,17 +101,18 @@ model Ticket {
 }
 
 model Reply {
-  id       String   @id @default(uuid())
-  text     String
-  time     String
-  date     String
-  author   String // Name at time of reply
-  type     String // agent, client, vendor
-  category String // client, vendor (for thread grouping)
-  to       String[]
-  cc       String[]
-  bcc      String[]
-  subject  String? // Optional subject override
+  id        String   @id @default(uuid())
+  text      String
+  time      String
+  date      String
+  author    String // Name at time of reply
+  type      String // agent, client, vendor
+  category  String // client, vendor (for thread grouping)
+  to        String[]
+  cc        String[]
+  bcc       String[]
+  subject   String? // Optional subject override
+  messageId String? // Outgoing email Message-ID for threading
 
   ticketId String
   ticket   Ticket @relation(fields: [ticketId], references: [id])

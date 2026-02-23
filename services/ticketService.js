@@ -29,14 +29,35 @@ const generateTicketId = async () => {
 //   3. Re: subject match   → last resort for clients that strip headers
 // ─────────────────────────────────────────────────────────────────────────────
 const findExistingTicketForReply = async (inReplyTo, references, subject) => {
-    // 1. In-Reply-To: most reliable — direct parent Message-ID
+    // 0. Strategy A: Subject regex extraction (Most Reliable)
+    // Agent replies always have "[#1234]" in the subject.
+    if (subject) {
+        const ticketIdMatch = subject.match(/\[(#\d+)\]/);
+        if (ticketIdMatch && ticketIdMatch[1]) {
+            const friendlyId = ticketIdMatch[1]; // e.g. "#1001"
+            const tickets = await TicketModel.findAllTickets();
+            const ticket = tickets.find(t => t.ticketId === friendlyId);
+            if (ticket) {
+                logger.info(`🧵 Reply matched via Subject ID: ${friendlyId} → Ticket ${ticket.ticketId}`);
+                return ticket;
+            }
+        }
+    }
+
+    // 1. Strategy B.1: In-Reply-To matches the Original Ticket Message-ID
     if (inReplyTo) {
-        // inReplyTo may be a string "<id@domain>" or already trimmed
         const cleanId = inReplyTo.trim();
         const ticket = await TicketModel.findTicketByMessageId(cleanId);
         if (ticket) {
-            logger.info(`🧵 Reply matched via In-Reply-To: ${cleanId} → Ticket ${ticket.ticketId}`);
+            logger.info(`🧵 Reply matched via In-Reply-To (Ticket): ${cleanId} → Ticket ${ticket.ticketId}`);
             return ticket;
+        }
+
+        // 1.5. Strategy B.2: In-Reply-To matches an Agent Reply Message-ID
+        const reply = await TicketModel.findReplyByMessageId(cleanId);
+        if (reply && reply.ticket) {
+            logger.info(`🧵 Reply matched via In-Reply-To (Agent Reply): ${cleanId} → Ticket ${reply.ticket.ticketId}`);
+            return reply.ticket;
         }
     }
 
@@ -352,7 +373,7 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName) => {
         // 3. Send Email to Client via Zoho Mail OAuth (supports In-Reply-To/References for threading)
         const emailService = require('./emailService');
         logger.info(`📧 Sending Agent Reply Email to: ${ticket.email} | Subject: Re: ${ticket.header}`);
-        await emailService.sendAgentReplyEmail({
+        const sentResult = await emailService.sendAgentReplyEmail({
             to: ticket.email,
             subject: `Re: ${ticket.header} [${ticket.ticketId}]`,
             html: `
@@ -369,6 +390,20 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName) => {
         });
 
         logger.info(`📤 Reply email sent to ${ticket.email}`);
+
+        // Try to capture and save the outgoing Message-ID for future reverse-matching
+        try {
+            // Zoho API format: result.data.messageId or result.data[0].messageId
+            const data = sentResult?.data;
+            const outboundMessageId = Array.isArray(data) ? data[0]?.messageId : data?.messageId;
+
+            if (outboundMessageId) {
+                await TicketModel.updateReply(reply.id, { messageId: outboundMessageId });
+                logger.info(`💾 Saved outbound messageId ${outboundMessageId} to Reply record for threading.`);
+            }
+        } catch (captureErr) {
+            logger.warn(`⚠️ Failed to capture outbound messageId: ${captureErr.message}`);
+        }
 
         // 4. Log activity
         const ActivityLogModel = require('../models/activityLog');
