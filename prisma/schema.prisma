@@ -67,6 +67,7 @@ model Vendor {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   circuits  Circuit[]
+  tickets   Ticket[]
 }
 
 model Ticket {
@@ -86,6 +87,11 @@ model Ticket {
 
   clientId String?
   client   Client? @relation(fields: [clientId], references: [id])
+
+  vendorId String?
+  vendor   Vendor? @relation(fields: [vendorId], references: [id])
+  
+  ticketType String @default("Client") // "Client" or "Vendor"
 
   assignedUserId String?
   assignedUser   User?   @relation(fields: [assignedUserId], references: [id])
@@ -218,6 +224,7 @@ model Circuit {
   vendor   Vendor? @relation(fields: [vendorId], references: [id])
 
   sla SLA?
+  slaRules SLARule[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -233,3 +240,34 @@ model SLA {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// --- SLA Rules Models ---
+
+model SLARule {
+  id               String   @id @default(uuid())
+  circuitId        String
+  circuitDisplayId String
+  targetType       String   // "vendor" | "customer"
+  targetId         String
+  targetName       String
+  
+  circuit          Circuit  @relation(fields: [circuitId], references: [id])
+  
+  conditions       SLARuleCondition[]
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model SLARuleCondition {
+  id             String   @id @default(uuid())
+  upperLimit     Float?
+  upperOperator  String?
+  lowerLimit     Float?
+  lowerOperator  String?
+  compensation   Float
+
+  ruleId         String
+  rule           SLARule  @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+}
+

@@ -138,6 +138,13 @@ try {
     logger.error('❌ Failed to load Vendor Routes:', error);
 }
 
+try {
+    app.use('/api/sla-rules', require('./routes/slaRuleRoutes'));
+    logger.debug('📏 SLA Rule routes registered');
+} catch (error) {
+    logger.error('❌ Failed to load SLA Rule Routes:', error);
+}
+
 // Error Handler
 app.use(errorHandler);
 

@@ -12,12 +12,13 @@ const logger = require('../utils/logger');
 // Better to emit an event or break the cycle. 
 // I will lazy-load emailService inside the function.
 
-const generateTicketId = async () => {
-    // Simple ID generation: # + 4 random digits or count. 
-    // To be safe and simple: Timestamp based or Count.
-    // Let's use count + 1000 for friendly IDs.
+const generateTicketId = async (ticketType = 'Client') => {
+    // Simple ID generation
     const tickets = await TicketModel.findAllTickets();
     const count = tickets.length;
+    if (ticketType === 'Vendor') {
+        return `#V${1000 + count + 1}`;
+    }
     return `#${1000 + count + 1}`;
 };
 
@@ -147,11 +148,10 @@ const createTicketFromEmail = async (emailData) => {
         }
 
         // 1. Identify Sender
-        // Check Client first
         let clientId = null;
-        // Need to add findByEmail to ClientModel if not exists. 
-        // ClientModel currently only has findById and create.
-        // For now, use findAllClients and find. Inefficient but works for now.
+        let vendorId = null;
+        let ticketType = 'Client';
+
         const clients = await ClientModel.findAllClients();
         const client = clients.find(c => c.emails.includes(from));
 
@@ -159,11 +159,19 @@ const createTicketFromEmail = async (emailData) => {
             clientId = client.id;
             logger.debug(`👤 Identified sender as Client: ${client.name} (${client.id})`);
         } else {
-            logger.debug(`❓ Sender not identified as existing client.`);
+            // Check Vendor
+            const VendorModel = require('../models/vendor');
+            const vendors = await VendorModel.findAllVendors();
+            const vendor = vendors.find(v => v.emails.includes(from));
+            
+            if (vendor) {
+                vendorId = vendor.id;
+                ticketType = 'Vendor';
+                logger.debug(`🏢 Identified sender as Vendor: ${vendor.name} (${vendor.id})`);
+            } else {
+                logger.debug(`❓ Sender not identified as existing client or vendor.`);
+            }
         }
-
-        // Check User (Agent)? Typically agents don't create tickets via email this way, but if they do:
-        // const user = await UserModel.findUserByEmail(from);
 
         // 2. Parse Subject for Circuit ID
         // Format: "98765432 || SF/SFO - TOK/HND-002"
@@ -183,8 +191,8 @@ const createTicketFromEmail = async (emailData) => {
         }
 
         // 3. Generate ID
-        const ticketId = await generateTicketId();
-        logger.debug(`🆔 Generated Ticket ID: ${ticketId}`);
+        const ticketId = await generateTicketId(ticketType);
+        logger.debug(`🆔 Generated ${ticketType} Ticket ID: ${ticketId}`);
 
         // 4. Use REAL email received timestamp, not current time
         logger.info('⏰⏰⏰ PERMAN is fetching time... ⏰⏰⏰');
@@ -210,6 +218,8 @@ const createTicketFromEmail = async (emailData) => {
             }), // NEW: Store display time (24-hour format)
             date: emailReceivedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
             clientId: clientId,
+            vendorId: vendorId,
+            ticketType: ticketType,
             replies: {
                 create: {
                     text: body || '(No Content)',
@@ -220,8 +230,8 @@ const createTicketFromEmail = async (emailData) => {
                     }), // FIXED: Use email time, not current time
                     date: emailReceivedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
                     author: fromName || from,
-                    type: 'client',
-                    category: 'client',
+                    type: ticketType.toLowerCase(),
+                    category: ticketType.toLowerCase(),
                     to: [from],
                 }
             },
@@ -245,9 +255,13 @@ const createTicketFromEmail = async (emailData) => {
         });
 
 
-        logger.info(`✅ Ticket Created Successfully: ${ticket.ticketId} at ${ticket.receivedTime}`);
+        logger.info(`✅ ${ticketType} Ticket Created Successfully: ${ticket.ticketId} at ${ticket.receivedTime}`);
 
-        // 6. Send Auto-Reply with 5-second delay (Reduced from 30s for reliability)
+        // 6. Send Auto-Reply with 5-second delay (Only for Clients)
+        if (ticketType === 'Vendor') {
+            logger.info(`⏰ Skipping auto-reply for Vendor ticket ${ticket.ticketId} to prevent infinite automated loops.`);
+            return ticket;
+        }
         // Lazy load emailService to avoid circular dependency
         const emailService = require('./emailService');
 
