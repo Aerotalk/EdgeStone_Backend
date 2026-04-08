@@ -4,45 +4,6 @@ const nodemailer = require('nodemailer');
 const emailConfig = require('../config/emailConfig');
 const ticketService = require('./ticketService');
 const logger = require('../utils/logger');
-const { SendMailClient } = require('zeptomail');
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ZeptoMail Client — single instance, validates token at startup
-// ─────────────────────────────────────────────────────────────────────────────
-if (!process.env.ZEPTO_MAIL_TOKEN) {
-    logger.error('🚨 ZEPTO_MAIL_TOKEN is not set! Outgoing emails will fail. Check .env / .env.production');
-}
-if (!process.env.ZEPTO_FROM_EMAIL) {
-    logger.warn('⚠️ ZEPTO_FROM_EMAIL is not set. Defaulting to noreply@edgestone.in');
-}
-
-const ZEPTO_FROM = process.env.ZEPTO_FROM_EMAIL || 'noreply@edgestone.in';
-const ZEPTO_NAME = 'EdgeStone Support';
-const ZEPTO_URL = process.env.ZEPTO_API_URL || 'https://api.zeptomail.in/v1.1/email';
-const ZEPTO_TOKEN = process.env.ZEPTO_MAIL_TOKEN || '';
-
-const zeptoClient = ZEPTO_TOKEN
-    ? new SendMailClient({ url: ZEPTO_URL, token: ZEPTO_TOKEN })
-    : null;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helper — extract a human-readable message from any ZeptoMail SDK rejection.
-// The SDK rejects with plain strings (validation) or raw JSON objects (API errors).
-// ─────────────────────────────────────────────────────────────────────────────
-const extractZeptoError = (err) => {
-    if (!err) return 'Unknown error (null)';
-    if (typeof err === 'string') return err;
-    if (typeof err === 'object') {
-        return (
-            err?.error?.details?.[0]?.sub_message ||
-            err?.error?.details?.[0]?.message ||
-            err?.error?.message ||
-            err?.message ||
-            JSON.stringify(err?.error || err)
-        );
-    }
-    return String(err);
-};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper — retry with exponential backoff
@@ -64,9 +25,11 @@ const withRetry = async (fn, { retries = 2, delayMs = 1500, label = 'operation' 
 
 // ─────────────────────────────────────────────────────────────────────────────
 // sendEmail — primary public API
-// Validates inputs, guards against missing client, retries on transient failures.
+// Validates inputs, routes via Outlook SMTP, retries on transient failures.
 // ─────────────────────────────────────────────────────────────────────────────
 const sendEmail = async ({ to, subject, html, text, inReplyTo, references }) => {
+    const outlookMailService = require('./outlookMailService');
+
     // ── Input validation ──────────────────────────────────────────────────────
     if (!to || typeof to !== 'string' || !to.includes('@')) {
         throw new Error(`sendEmail: invalid "to" address: ${to}`);
@@ -82,60 +45,12 @@ const sendEmail = async ({ to, subject, html, text, inReplyTo, references }) => 
     // Sanitise subject — strip control characters that can cause header injection
     const safeSubject = subject.replace(/[\r\n\t]/g, ' ').trim();
 
-    logger.info(`📧 Sending email via ZeptoMail | to: ${to} | subject: "${safeSubject}"`);
-
-    if (!zeptoClient) {
-        const msg = '🚨 ZeptoMail client is not initialised (ZEPTO_MAIL_TOKEN missing). Cannot send email.';
-        logger.error(msg);
-        throw new Error(msg);
-    }
+    logger.info(`📧 Routing system email via Outlook SMTP | to: ${to} | subject: "${safeSubject}"`);
 
     return withRetry(
-        () => sendViaZepto({ to, subject: safeSubject, html, text }),
-        { retries: 2, delayMs: 2000, label: 'ZeptoMail send' }
+        () => outlookMailService.sendOutlookEmail({ to, subject: safeSubject, html, text }),
+        { retries: 2, delayMs: 2000, label: 'Outlook system send' }
     );
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// sendViaZepto — builds and dispatches the ZeptoMail payload.
-// NOTE: ZeptoMail API rejects any unrecognised keys (e.g. custom `headers`).
-//       In-Reply-To / References are intentionally OMITTED — ZeptoMail does not
-//       support them. Use sendAgentReplyEmail (→ Zoho Mail OAuth) for threading.
-// ─────────────────────────────────────────────────────────────────────────────
-const sendViaZepto = async ({ to, subject, html, text }) => {
-    const payload = {
-        from: {
-            address: ZEPTO_FROM,
-            name: ZEPTO_NAME,
-        },
-        to: [
-            {
-                email_address: {
-                    address: to,
-                    name: to,   // Name is optional; use address as fallback
-                },
-            },
-        ],
-        subject,
-        // ZeptoMail requires at least one of htmlbody / textbody.
-        // Always provide both for maximum client compatibility.
-        htmlbody: html || `<p>${text}</p>`,
-        textbody: text || '',
-    };
-
-    logger.debug(`📤 ZeptoMail payload ready | from: ${ZEPTO_FROM} | to: ${to}`);
-
-    try {
-        const response = await zeptoClient.sendMail(payload);
-        logger.info(`✅ ZeptoMail sent successfully | to: ${to} | response: ${JSON.stringify(response)}`);
-        return response;
-    } catch (err) {
-        const errMsg = extractZeptoError(err);
-        const rawDump = typeof err === 'string' ? err : JSON.stringify(err);
-        logger.error(`❌ ZeptoMail API error: ${errMsg}`);
-        logger.error(`❌ ZeptoMail raw dump:  ${rawDump}`);
-        throw new Error(`ZeptoMail: ${errMsg}`);
-    }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -281,8 +196,8 @@ const fetchNewEmails = (imap, trigger) => {
                     }
 
                     // ── Skip emails from our own domain (auto-reply loops / sent copies) ──
-                    const ownDomain = '@edgestone.in';
-                    if (fromObj.address.toLowerCase().endsWith(ownDomain)) {
+                    const ownDomain = emailConfig.addresses.noReply ? `@${emailConfig.addresses.noReply.split('@')[1]}` : null;
+                    if (ownDomain && fromObj.address.toLowerCase().endsWith(ownDomain.toLowerCase())) {
                         logger.info(`🔁 Skipping email from own domain (${fromObj.address}) — not a client email`);
                         return;
                     }
@@ -331,14 +246,14 @@ const fetchNewEmails = (imap, trigger) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// sendAgentReplyEmail — sends an agent reply via Zoho Mail OAuth API.
-// Unlike ZeptoMail, the Zoho Mail API supports In-Reply-To / References headers,
+// sendAgentReplyEmail — sends an agent reply via Outlook SMTP.
+// Unlike ZeptoMail, Outlook SMTP supports In-Reply-To / References headers naturally,
 // which allows email clients (Gmail, Outlook) to thread the reply correctly.
 //
 // Use this ONLY for agent-initiated replies (not auto-replies — those use sendEmail).
 // ─────────────────────────────────────────────────────────────────────────────
 const sendAgentReplyEmail = async ({ to, subject, html, text, inReplyTo, references }) => {
-    const zohoMailService = require('./zohoMailService');
+    const outlookMailService = require('./outlookMailService');
 
     if (!to || typeof to !== 'string' || !to.includes('@')) {
         throw new Error(`sendAgentReplyEmail: invalid "to" address: ${to}`);
@@ -348,9 +263,9 @@ const sendAgentReplyEmail = async ({ to, subject, html, text, inReplyTo, referen
     }
 
     const safeSubject = subject.replace(/[\r\n\t]/g, ' ').trim();
-    logger.info(`📧 Routing agent reply via Zoho Mail OAuth | to: ${to} | subject: "${safeSubject}"`);
+    logger.info(`📧 Routing agent reply via Outlook SMTP | to: ${to} | subject: "${safeSubject}"`);
 
-    return zohoMailService.sendZohoEmail({ to, subject: safeSubject, html, text, inReplyTo, references });
+    return outlookMailService.sendOutlookReplyEmail({ to, subject: safeSubject, html, text, inReplyTo, references });
 };
 
 module.exports = {

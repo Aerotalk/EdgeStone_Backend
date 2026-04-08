@@ -10,13 +10,13 @@ const smtpSecure = process.env.SMTP_SECURE
     : smtpPort === 465;
 
 module.exports = {
-    // Zoho Mail IMAP Configuration (Incoming)
+    // Outlook IMAP Configuration (Incoming)
     imap: {
         user: process.env.MAIL_USER,
         password: process.env.MAIL_PASSWORD,
-        host: process.env.IMAP_HOST || 'imappro.zoho.in',
+        host: process.env.IMAP_HOST || 'outlook.office365.com',
         port: Number(process.env.IMAP_PORT) || 993,
-        tls: process.env.IMAP_SECURE === 'true',
+        tls: process.env.IMAP_SECURE !== 'false',
         tlsOptions: { rejectUnauthorized: false },
         authTimeout: 60000, // Increased from 30s to 60s
         connTimeout: 60000, // Connection timeout
@@ -27,10 +27,10 @@ module.exports = {
         }
     },
 
-    // Zoho Mail SMTP Configuration (Outgoing)
+    // Outlook SMTP Configuration (Outgoing)
     // Defaults to port 587 with STARTTLS, but safely supports 465 + implicit TLS.
     smtp: {
-        host: process.env.SMTP_HOST || 'smtppro.zoho.in',
+        host: process.env.SMTP_HOST || 'smtp.office365.com',
         port: smtpPort,
         secure: smtpSecure,
         // Force STARTTLS when using port 587 (not implicit TLS)
@@ -44,7 +44,7 @@ module.exports = {
             // Ensure proper TLS handshake
             ciphers: 'SSLv3',
             rejectUnauthorized: false, // Allow self-signed certs in dev, but Railway should work with true
-            servername: process.env.SMTP_HOST || 'smtppro.zoho.in', // SNI support
+            servername: process.env.SMTP_HOST || 'smtp.office365.com', // SNI support
             minVersion: 'TLSv1.2', // Enforce minimum TLS version
         },
         // Timeout configuration optimized for Railway deployment
@@ -62,7 +62,7 @@ module.exports = {
 
     // System Email Addresses
     addresses: {
-        support: 'support@edgestone.in', // Main support inbox
-        noReply: process.env.MAIL_USER, // Must match authenticated SMTP user for Zoho
+        support: process.env.SUPPORT_EMAIL || process.env.MAIL_USER, // Main support inbox (fallback to MAIL_USER)
+        noReply: process.env.MAIL_USER, // Must match authenticated SMTP user for Outlook
     }
 };
