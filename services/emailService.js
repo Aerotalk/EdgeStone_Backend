@@ -1,5 +1,3 @@
-const Imap = require('imap');
-const { simpleParser } = require('mailparser');
 const nodemailer = require('nodemailer');
 const emailConfig = require('../config/emailConfig');
 const ticketService = require('./ticketService');
@@ -54,203 +52,181 @@ const sendEmail = async ({ to, subject, html, text, inReplyTo, references }) => 
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// IMAP Listener — Zoho incoming mail
-// Handles: reconnect on ANY error/close, null-safe parsing, duplicate suppression
+// Microsoft Graph API Listener (Replaces IMAP)
+// Handles polling via HTTP every 30s to simulate an IMAP IDLE listener
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Track recently processed messageIds to avoid processing the same email twice
-// (can happen if IMAP reconnects while a fetch is in-flight)
-const processedMessageIds = new Set();
-const PROCESSED_ID_TTL_MS = 30 * 60 * 1000; // 30 minutes
+let graphAccessToken = null;
+let tokenExpiresAt = 0;
+let graphPollInterval = null;
 
-const rememberProcessed = (messageId) => {
-    if (!messageId) return;
-    processedMessageIds.add(messageId);
-    // Auto-clean after TTL
-    setTimeout(() => processedMessageIds.delete(messageId), PROCESSED_ID_TTL_MS);
+const getGraphAccessToken = async () => {
+    const tenantId = process.env.TENANT_ID;
+    const clientId = process.env.CLIENT_ID;
+    const clientSecret = process.env.CLIENT_SECRET;
+
+    if (!tenantId || !clientId || !clientSecret) {
+        throw new Error("Missing MS Graph API configuration in environment.");
+    }
+
+    if (graphAccessToken && Date.now() < tokenExpiresAt) {
+        return graphAccessToken;
+    }
+
+    const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+    const tokenData = new URLSearchParams({
+        client_id: clientId,
+        scope: 'https://graph.microsoft.com/.default',
+        client_secret: clientSecret,
+        grant_type: 'client_credentials'
+    });
+
+    const response = await fetch(tokenUrl, {
+        method: 'POST',
+        body: tokenData,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+        throw new Error(`Failed to get Graph Token: ${result.error_description || result.error}`);
+    }
+
+    graphAccessToken = result.access_token;
+    // expire securely 5 minutes before actual expiration
+    tokenExpiresAt = Date.now() + ((result.expires_in - 300) * 1000); 
+    
+    return graphAccessToken;
 };
 
-let imapReconnectTimer = null;
+const markEmailAsRead = async (messageId, accessToken) => {
+    const userEmail = process.env.SENDER_EMAIL || process.env.MAIL_USER;
+    const patchUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/messages/${messageId}`;
+    try {
+        const res = await fetch(patchUrl, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ isRead: true })
+        });
+        if (!res.ok) {
+            const err = await res.text();
+            logger.error(`❌ Failed to mark message ${messageId} as read: ${err}`);
+        } else {
+            logger.info(`✅ Marked message ${messageId} as read`);
+        }
+    } catch (e) {
+        logger.error(`❌ Error marking message as read: ${e.message}`);
+    }
+};
 
-const scheduleImapReconnect = (delayMs = 15000) => {
-    if (imapReconnectTimer) return; // already scheduled
-    logger.warn(`⚠️ IMAP reconnecting in ${delayMs / 1000}s...`);
-    imapReconnectTimer = setTimeout(() => {
-        imapReconnectTimer = null;
-        startImapListener();
-    }, delayMs);
+const fetchNewGraphEmails = async () => {
+    const userEmail = process.env.SENDER_EMAIL || process.env.MAIL_USER;
+    let accessToken;
+    try {
+        accessToken = await getGraphAccessToken();
+    } catch (err) {
+        logger.error(`❌ MS Graph Token Error: ${err.message}`);
+        return;
+    }
+
+    logger.debug(`🔍 Polling Microsoft Graph for UNREAD messages...`);
+    const messagesUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/messages?$filter=isRead eq false&$top=20&$select=id,internetMessageId,subject,from,toRecipients,body,receivedDateTime,internetMessageHeaders,hasAttachments`;
+
+    try {
+        const response = await fetch(messagesUrl, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+        
+        const result = await response.json();
+        if (!response.ok) {
+            logger.error(`❌ Graph Mail API Error: ${result.error?.message || JSON.stringify(result)}`);
+            return;
+        }
+
+        const messages = result.value || [];
+        if (messages.length === 0) {
+            return;
+        }
+
+        logger.info(`📬 Found ${messages.length} unread message(s) via Graph API.`);
+
+        for (const msg of messages) {
+            const messageId = msg.internetMessageId || msg.id; // DB uses internetMessageId ideally for threading
+            const fromAddr = msg.from?.emailAddress?.address;
+            const fromName = msg.from?.emailAddress?.name || fromAddr;
+            
+            if (!fromAddr) {
+                logger.warn(`⚠️ Skipping email with no From address (Graph ID: ${msg.id})`);
+                await markEmailAsRead(msg.id, accessToken);
+                continue;
+            }
+
+            // Skip auto-reply loops
+            const ownDomain = emailConfig.addresses.noReply ? `@${emailConfig.addresses.noReply.split('@')[1]}` : null;
+            if (ownDomain && fromAddr.toLowerCase().endsWith(ownDomain.toLowerCase())) {
+                logger.info(`🔁 Skipping email from own domain (${fromAddr}) — not a client email`);
+                await markEmailAsRead(msg.id, accessToken);
+                continue;
+            }
+
+            // Extract Headers for threading
+            let inReplyTo = null;
+            let references = null;
+            if (msg.internetMessageHeaders) {
+                const inReplyToHeader = msg.internetMessageHeaders.find(h => h.name.toLowerCase() === 'in-reply-to');
+                const referencesHeader = msg.internetMessageHeaders.find(h => h.name.toLowerCase() === 'references');
+                if (inReplyToHeader) inReplyTo = inReplyToHeader.value;
+                if (referencesHeader) references = referencesHeader.value;
+            }
+
+            const emailData = {
+                from: fromAddr,
+                fromName: fromName,
+                subject: msg.subject || '(No Subject)',
+                body: msg.body?.content || '',
+                html: msg.body?.contentType === 'html' ? msg.body?.content : null,
+                date: msg.receivedDateTime ? new Date(msg.receivedDateTime) : new Date(),
+                messageId: messageId,
+                inReplyTo: inReplyTo,
+                references: references,
+                attachments: [] // Attachments could be fetched via separate call if required
+            };
+
+            const recipient = msg.toRecipients?.map(r => r.emailAddress?.address).join(', ') || 'unknown';
+            logger.info(`📩 Graph Email received | from: ${fromAddr} | to: ${recipient} | subject: "${emailData.subject}"`);
+
+            try {
+                // Forward the payload to our existing ticketing system logic
+                await ticketService.createTicketFromEmail(emailData);
+                // After processing, mark as read so we don't process it again
+                await markEmailAsRead(msg.id, accessToken);
+            } catch (e) {
+                logger.error(`❌ Error creating ticket from Graph email: ${e.message}`, { stack: e.stack });
+            }
+        }
+
+    } catch (err) {
+        logger.error(`❌ Graph Mail Fetch Request Error: ${err.message}`);
+    }
 };
 
 const startImapListener = () => {
-    logger.info('🔌 Starting IMAP Listener...');
-    let imap;
+    logger.info('🔌 Starting Microsoft Graph API Email Poller (replacing IMAP listener)...');
+    
+    // Run immediately on start
+    fetchNewGraphEmails();
 
-    try {
-        imap = new Imap(emailConfig.imap);
-    } catch (err) {
-        logger.error(`❌ Failed to create IMAP client: ${err.message}`);
-        scheduleImapReconnect(30000);
-        return;
+    // Poll every 30 seconds
+    if (!graphPollInterval) {
+        graphPollInterval = setInterval(fetchNewGraphEmails, 30000);
     }
-
-    imap.once('ready', () => {
-        logger.info('✅ IMAP Connection Ready');
-        imap.openBox('INBOX', false, (err, box) => {
-            if (err) {
-                logger.error(`❌ Error opening inbox: ${err.message}`);
-                imap.end();
-                scheduleImapReconnect();
-                return;
-            }
-            logger.info('📥 Inbox open. Listening for new emails...');
-
-            // Initial scan for any unread emails that arrived while we were offline
-            fetchNewEmails(imap, 'startup');
-
-            imap.on('mail', (numNewMsgs) => {
-                logger.info(`📨 ${numNewMsgs} new message(s) arrived`);
-                fetchNewEmails(imap, `mail-event(${numNewMsgs})`);
-            });
-
-            // Periodic keepalive: re-scan every 5 minutes in case mail events were missed
-            const keepaliveInterval = setInterval(() => {
-                if (!imap || imap.state === 'disconnected') {
-                    clearInterval(keepaliveInterval);
-                    return;
-                }
-                fetchNewEmails(imap, 'keepalive');
-            }, 5 * 60 * 1000);
-
-            imap.once('close', () => clearInterval(keepaliveInterval));
-            imap.once('end', () => clearInterval(keepaliveInterval));
-        });
-    });
-
-    imap.once('error', (err) => {
-        logger.error(`❌ IMAP Error [${err.code || 'unknown'}]: ${err.message}`);
-        scheduleImapReconnect();
-    });
-
-    imap.once('end', () => {
-        logger.warn('⚠️ IMAP connection ended');
-        scheduleImapReconnect();
-    });
-
-    imap.once('close', (hadError) => {
-        logger.warn(`⚠️ IMAP connection closed${hadError ? ' (with error)' : ''}`);
-        scheduleImapReconnect();
-    });
-
-    try {
-        imap.connect();
-    } catch (err) {
-        logger.error(`❌ imap.connect() threw synchronously: ${err.message}`);
-        scheduleImapReconnect(30000);
-    }
-};
-
-const fetchNewEmails = (imap, trigger) => {
-    if (!imap || imap.state === 'disconnected') {
-        logger.warn(`⚠️ fetchNewEmails(${trigger}): IMAP is disconnected — skipping`);
-        return;
-    }
-
-    logger.info(`🔍 Searching UNSEEN messages [trigger: ${trigger}]...`);
-
-    imap.search(['UNSEEN'], (err, results) => {
-        if (err) {
-            logger.error(`❌ IMAP search error: ${err.message}`);
-            return;
-        }
-
-        if (!results || results.length === 0) {
-            logger.info('📭 No unseen messages');
-            return;
-        }
-
-        logger.info(`📬 Found ${results.length} unseen message(s). Fetching...`);
-
-        let fetchObj;
-        try {
-            fetchObj = imap.fetch(results, { bodies: '', markSeen: true });
-        } catch (fetchErr) {
-            logger.error(`❌ imap.fetch() failed: ${fetchErr.message}`);
-            return;
-        }
-
-        fetchObj.on('message', (msg) => {
-            msg.on('body', (stream) => {
-                simpleParser(stream, async (parseErr, parsed) => {
-                    if (parseErr) {
-                        logger.error(`❌ Mail parse error: ${parseErr.message}`);
-                        return;
-                    }
-
-                    // ── Null-safe field extraction ────────────────────────────
-                    const messageId = parsed?.messageId || null;
-                    const fromObj = parsed?.from?.value?.[0];
-
-                    if (!fromObj || !fromObj.address) {
-                        logger.warn(`⚠️ Skipping email with no parseable From address (messageId: ${messageId})`);
-                        return;
-                    }
-
-                    // ── Skip emails from our own domain (auto-reply loops / sent copies) ──
-                    const ownDomain = emailConfig.addresses.noReply ? `@${emailConfig.addresses.noReply.split('@')[1]}` : null;
-                    if (ownDomain && fromObj.address.toLowerCase().endsWith(ownDomain.toLowerCase())) {
-                        logger.info(`🔁 Skipping email from own domain (${fromObj.address}) — not a client email`);
-                        return;
-                    }
-
-                    // ── Duplicate suppression ─────────────────────────────────
-                    if (messageId && processedMessageIds.has(messageId)) {
-                        logger.warn(`⚠️ Skipping duplicate email: ${messageId}`);
-                        return;
-                    }
-                    rememberProcessed(messageId);
-
-                    const emailData = {
-                        from: fromObj.address,
-                        fromName: fromObj.name || fromObj.address,
-                        subject: parsed.subject || '(No Subject)',
-                        body: parsed.text || parsed.html || '',
-                        html: parsed.html || null,
-                        date: parsed.date || new Date(),
-                        messageId,
-                        // Threading headers — used to detect if this is a reply to an existing ticket
-                        inReplyTo: parsed.inReplyTo || null,
-                        references: parsed.references || null,
-                        attachments: parsed.attachments || [],
-                    };
-
-                    const recipient = parsed?.to?.text || 'unknown';
-                    logger.info(`📩 Email received | from: ${emailData.from} | to: ${recipient} | subject: "${emailData.subject}"`);
-
-                    try {
-                        await ticketService.createTicketFromEmail(emailData);
-                    } catch (e) {
-                        logger.error(`❌ Error creating ticket from email: ${e.message}`, { stack: e.stack });
-                    }
-                });
-            });
-        });
-
-        fetchObj.once('error', (fetchErr) => {
-            logger.error(`❌ IMAP fetch stream error: ${fetchErr.message}`);
-        });
-
-        fetchObj.once('end', () => {
-            logger.info('✅ Finished fetching unseen messages');
-        });
-    });
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // sendAgentReplyEmail — sends an agent reply via Outlook SMTP.
-// Unlike ZeptoMail, Outlook SMTP supports In-Reply-To / References headers naturally,
-// which allows email clients (Gmail, Outlook) to thread the reply correctly.
-//
-// Use this ONLY for agent-initiated replies (not auto-replies — those use sendEmail).
 // ─────────────────────────────────────────────────────────────────────────────
 const sendAgentReplyEmail = async ({ to, subject, html, text, inReplyTo, references }) => {
     const outlookMailService = require('./outlookMailService');
@@ -271,5 +247,5 @@ const sendAgentReplyEmail = async ({ to, subject, html, text, inReplyTo, referen
 module.exports = {
     sendEmail,
     sendAgentReplyEmail,
-    startImapListener,
+    startImapListener // Retained alias so existing require() statements don't break
 };
