@@ -46,7 +46,7 @@ const sendEmail = async ({ to, subject, html, text, inReplyTo, references }) => 
     logger.info(`📧 Routing system email via Outlook SMTP | to: ${to} | subject: "${safeSubject}"`);
 
     return withRetry(
-        () => outlookMailService.sendOutlookEmail({ to, subject: safeSubject, html, text }),
+        () => outlookMailService.sendOutlookEmail({ to, subject: safeSubject, html, text, inReplyTo, references }),
         { retries: 2, delayMs: 2000, label: 'Outlook system send' }
     );
 };

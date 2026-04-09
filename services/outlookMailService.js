@@ -70,7 +70,7 @@ const sendOutlookReplyEmail = async ({ to, subject, html, text, inReplyTo, refer
  * Sends a generic system email (auto-replies, notifications).
  * Does not attach threading headers (In-Reply-To/References).
  */
-const sendOutlookEmail = async ({ to, subject, html, text }) => {
+const sendOutlookEmail = async ({ to, subject, html, text, inReplyTo, references }) => {
     if (!to || !subject) {
         throw new Error('outlookMailService.sendOutlookEmail: "to" and "subject" are required.');
     }
@@ -85,6 +85,16 @@ const sendOutlookEmail = async ({ to, subject, html, text }) => {
         html: html || `<p>${text || ''}</p>`,
         text: text || '',
     };
+
+    if (inReplyTo) {
+        mailOptions.inReplyTo = inReplyTo;
+    }
+    
+    if (references) {
+        mailOptions.references = references;
+    } else if (inReplyTo) {
+        mailOptions.references = inReplyTo;
+    }
 
     try {
         const info = await transporter.sendMail(mailOptions);

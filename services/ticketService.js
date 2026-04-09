@@ -407,9 +407,8 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName) => {
 
         // Try to capture and save the outgoing Message-ID for future reverse-matching
         try {
-            // Zoho API format: result.data.messageId or result.data[0].messageId
-            const data = sentResult?.data;
-            const outboundMessageId = Array.isArray(data) ? data[0]?.messageId : data?.messageId;
+            // Nodemailer returns messageId directly on the info object
+            const outboundMessageId = sentResult?.messageId;
 
             if (outboundMessageId) {
                 await TicketModel.updateReply(reply.id, { messageId: outboundMessageId });
