@@ -607,10 +607,19 @@ const replyToVendor = async (ticketId, message, agentEmail, agentName) => {
         }
         if (!ticket) throw new Error(`Ticket ${ticketId} not found`);
 
-        // Determine vendor email — stored on the ticket, or fall back to env default
-        const vendorContactEmail = ticket.vendorEmail || process.env.DEFAULT_VENDOR_EMAIL;
+        // Determine vendor email — fetch from associated vendor or fall back to env default
+        let vendorContactEmail = process.env.DEFAULT_VENDOR_EMAIL;
+        
+        if (ticket.vendorId) {
+            const VendorModel = require('../models/vendor');
+            const vendor = await VendorModel.findVendorById(ticket.vendorId);
+            if (vendor && vendor.emails && vendor.emails.length > 0) {
+                vendorContactEmail = vendor.emails[0];
+            }
+        }
+        
         if (!vendorContactEmail) {
-            throw new Error(`No vendor email for ticket ${ticket.ticketId}. Set vendorEmail on ticket or DEFAULT_VENDOR_EMAIL in .env.`);
+            throw new Error(`No vendor email found for ticket ${ticket.ticketId}. Please make sure the assigned vendor has an email address, or set DEFAULT_VENDOR_EMAIL in .env.`);
         }
 
         logger.info(`📧 replyToVendor: Sending email to vendor: ${vendorContactEmail}`);
