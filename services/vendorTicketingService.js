@@ -115,7 +115,9 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
             to: vendorContactEmails,
             cc: cc || [],
             bcc: bcc || [],
-            subject: subject || `Vendor Support Request: ${ticket.header} [${ticket.ticketId}]`,
+            subject: subject ? 
+                (subject.includes(`[${ticket.ticketId}`) ? subject : `${subject} [${ticket.ticketId}-V]`) : 
+                `Vendor Support Request: ${ticket.header} [${ticket.ticketId}-V]`,
             html: `
                 <div style="font-family: Arial, sans-serif;">
                     <p>Hello Vendor Support Team,</p>

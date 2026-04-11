@@ -56,9 +56,9 @@ const generateTicketId = async (ticketType = 'Client') => {
 // ─────────────────────────────────────────────────────────────────────────────
 const findExistingTicketForReply = async (inReplyTo, references, subject) => {
     // 0. Strategy A: Subject regex extraction (Most Reliable)
-    // Agent replies always have "[#1234]" or "[#V1234]" in the subject.
+    // Agent replies always have "[#1234]" or "[#V1234]" or "[#1234-V]" in the subject.
     if (subject) {
-        const ticketIdMatch = subject.match(/\[(#V?\d+)\]/i);
+        const ticketIdMatch = subject.match(/\[(#V?\d+)(?:-V)?\]/i);
         if (ticketIdMatch && ticketIdMatch[1]) {
             const friendlyId = ticketIdMatch[1].toUpperCase(); // standardize case
             const tickets = await TicketModel.findAllTickets();
@@ -216,8 +216,15 @@ const createTicketFromEmail = async (emailData) => {
             // Determine if the sender is a known Vendor (case-insensitive)
             const VendorModel = require('../models/vendor');
             const vendors = await VendorModel.findAllVendors();
-            const isVendor = vendors.some(v => v.emails.some(e => e.toLowerCase() === from.toLowerCase()));
+            let isVendor = vendors.some(v => v.emails.some(e => e.toLowerCase() === from.toLowerCase()));
             
+            // EXPLICIT ROUTING: If the subject contains the explicit vendor suffix (e.g. [#1024-V]), force it into vendor thread
+            // even if the email doesn't strictly match the saved vendor emails list in the DB yet!
+            if (subject && /\[#V?\d+-V\]/i.test(subject)) {
+                logger.info(`🧵 Force-routing reply into Vendor thread due to -V tag in subject`);
+                isVendor = true;
+            }
+
             if (isVendor) {
                 return await appendVendorReplyToTicket(existingTicket, emailData);
             } else {
