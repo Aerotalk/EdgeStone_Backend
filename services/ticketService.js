@@ -56,13 +56,13 @@ const generateTicketId = async (ticketType = 'Client') => {
 // ─────────────────────────────────────────────────────────────────────────────
 const findExistingTicketForReply = async (inReplyTo, references, subject) => {
     // 0. Strategy A: Subject regex extraction (Most Reliable)
-    // Agent replies always have "[#1234]" in the subject.
+    // Agent replies always have "[#1234]" or "[#V1234]" in the subject.
     if (subject) {
-        const ticketIdMatch = subject.match(/\[(#\d+)\]/);
+        const ticketIdMatch = subject.match(/\[(#V?\d+)\]/i);
         if (ticketIdMatch && ticketIdMatch[1]) {
-            const friendlyId = ticketIdMatch[1]; // e.g. "#1001"
+            const friendlyId = ticketIdMatch[1].toUpperCase(); // standardize case
             const tickets = await TicketModel.findAllTickets();
-            const ticket = tickets.find(t => t.ticketId === friendlyId);
+            const ticket = tickets.find(t => t.ticketId.toUpperCase() === friendlyId);
             if (ticket) {
                 logger.info(`🧵 Reply matched via Subject ID: ${friendlyId} → Ticket ${ticket.ticketId}`);
                 return ticket;
@@ -213,10 +213,10 @@ const createTicketFromEmail = async (emailData) => {
         // 0. Check if this email is a reply to an existing ticket
         const existingTicket = await findExistingTicketForReply(inReplyTo, references, subject);
         if (existingTicket) {
-            // Determine if the sender is a known Vendor
+            // Determine if the sender is a known Vendor (case-insensitive)
             const VendorModel = require('../models/vendor');
             const vendors = await VendorModel.findAllVendors();
-            const isVendor = vendors.some(v => v.emails.includes(from));
+            const isVendor = vendors.some(v => v.emails.some(e => e.toLowerCase() === from.toLowerCase()));
             
             if (isVendor) {
                 return await appendVendorReplyToTicket(existingTicket, emailData);
@@ -231,7 +231,7 @@ const createTicketFromEmail = async (emailData) => {
         let ticketType = 'Client';
 
         const clients = await ClientModel.findAllClients();
-        const client = clients.find(c => c.emails.includes(from));
+        const client = clients.find(c => c.emails.some(e => e.toLowerCase() === from.toLowerCase()));
 
         if (client) {
             clientId = client.id;
@@ -240,7 +240,7 @@ const createTicketFromEmail = async (emailData) => {
             // Check Vendor
             const VendorModel = require('../models/vendor');
             const vendors = await VendorModel.findAllVendors();
-            const vendor = vendors.find(v => v.emails.includes(from));
+            const vendor = vendors.find(v => v.emails.some(e => e.toLowerCase() === from.toLowerCase()));
             
             if (vendor) {
                 vendorId = vendor.id;
