@@ -2,6 +2,31 @@ const TicketModel = require('../models/ticket');
 const ClientModel = require('../models/client');
 const UserModel = require('../models/user');
 const logger = require('../utils/logger');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// stripHtml — strips HTML tags & decodes common HTML entities
+// Microsoft Graph API returns email bodies as full HTML documents.
+// We strip them before saving to DB so the frontend renders clean plain text.
+// ─────────────────────────────────────────────────────────────────────────────
+const stripHtml = (str) => {
+    if (!str) return '';
+    return str
+        .replace(/<style[\s\S]*?<\/style>/gi, '') // remove <style> blocks entirely
+        .replace(/<script[\s\S]*?<\/script>/gi, '') // remove <script> blocks
+        .replace(/<br\s*\/?>/gi, '\n') // <br> → newline
+        .replace(/<\/p>/gi, '\n') // </p> → newline
+        .replace(/<\/div>/gi, '\n') // </div> → newline
+        .replace(/<[^>]+>/g, '') // strip remaining tags
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/[ \t]{2,}/g, ' ') // collapse multiple spaces
+        .replace(/\n{3,}/g, '\n\n') // collapse excessive newlines
+        .trim();
+};
 // We need to circular dependency? emailService uses ticketService. 
 // ticketService needs emailService to send auto-reply. 
 // Standard pattern: pass emailService function or require it inside function to avoid top-level cyclic dependency if needed, 
@@ -106,7 +131,7 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
     logger.info(`📩 Appending client reply to existing Ticket ${ticket.ticketId} from ${from}`);
 
     const reply = await TicketModel.addReply(ticket.id, {
-        text: body || html || '(No Content)',
+        text: stripHtml(body || html) || '(No Content)',
         time: emailReceivedDate.toLocaleTimeString('en-US', {
             hour: '2-digit',
             minute: '2-digit',
@@ -222,7 +247,7 @@ const createTicketFromEmail = async (emailData) => {
             ticketType: ticketType,
             replies: {
                 create: {
-                    text: body || '(No Content)',
+                    text: stripHtml(body) || '(No Content)',
                     time: emailReceivedDate.toLocaleTimeString('en-US', {
                         hour: '2-digit',
                         minute: '2-digit',

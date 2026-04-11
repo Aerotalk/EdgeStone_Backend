@@ -86,20 +86,22 @@ const sendViaGraph = async ({ to, subject, html, text, inReplyTo, references }) 
         },
     };
 
-    // Attach threading headers as Internet Message Headers if provided
-    const internetMessageHeaders = [];
-    if (inReplyTo) {
-        internetMessageHeaders.push({ name: 'In-Reply-To', value: inReplyTo });
-        logger.info(`🧵 sendViaGraph: Adding In-Reply-To header: ${inReplyTo}`);
-    }
-    if (references) {
-        internetMessageHeaders.push({ name: 'References', value: references });
-    } else if (inReplyTo) {
-        // Fallback: use the direct parent as the References chain
-        internetMessageHeaders.push({ name: 'References', value: inReplyTo });
-    }
-    if (internetMessageHeaders.length > 0) {
-        message.internetMessageHeaders = internetMessageHeaders;
+    // NOTE: Microsoft Graph API only allows custom X- prefixed headers in internetMessageHeaders.
+    // Standard RFC 5322 headers like 'In-Reply-To' and 'References' are BLOCKED and will throw:
+    //   "The internet message header name should start with 'x-' or 'X-'"
+    // Graph manages email threading internally via its own conversationId system.
+    // We store our own tracking headers using X- prefix for internal reference only.
+    if (inReplyTo || references) {
+        message.internetMessageHeaders = [];
+        if (inReplyTo) {
+            message.internetMessageHeaders.push({ name: 'X-Ticket-In-Reply-To', value: inReplyTo });
+            logger.info(`🧵 sendViaGraph: Storing In-Reply-To as X-Ticket-In-Reply-To: ${inReplyTo}`);
+        }
+        if (references) {
+            message.internetMessageHeaders.push({ name: 'X-Ticket-References', value: references });
+        } else if (inReplyTo) {
+            message.internetMessageHeaders.push({ name: 'X-Ticket-References', value: inReplyTo });
+        }
     }
 
     const sendUrl = `https://graph.microsoft.com/v1.0/users/${senderEmail}/sendMail`;
