@@ -160,6 +160,46 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
     return reply;
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// appendVendorReplyToTicket
+// Appends a vendor's reply email to an existing ticket's vendor thread.
+// ─────────────────────────────────────────────────────────────────────────────
+const appendVendorReplyToTicket = async (ticket, emailData) => {
+    const { from, fromName, body, html, date } = emailData;
+    const emailReceivedDate = date ? new Date(date) : new Date();
+
+    logger.info(`📩 Appending vendor reply to existing Ticket ${ticket.ticketId} from ${from}`);
+
+    const reply = await TicketModel.addReply(ticket.id, {
+        text: stripHtml(body || html) || '(No Content)',
+        time: emailReceivedDate.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        }),
+        date: emailReceivedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+        author: fromName || from,
+        type: 'vendor',
+        category: 'vendor',
+        to: [from],
+    });
+
+    // Log activity
+    const ActivityLogModel = require('../models/activityLog');
+    const now = new Date();
+    await ActivityLogModel.createActivityLog({
+        ticketId: ticket.id,
+        action: 'vendor_replied',
+        description: `Vendor ${fromName || from} replied to the ticket via email`,
+        time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        date: now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+        author: fromName || from,
+    });
+
+    logger.info(`✅ Vendor reply appended to Ticket ${ticket.ticketId}`);
+    return reply;
+};
+
 const createTicketFromEmail = async (emailData) => {
     const { from, fromName, subject, body, date, messageId, inReplyTo, references } = emailData;
 
@@ -169,7 +209,16 @@ const createTicketFromEmail = async (emailData) => {
         // 0. Check if this email is a reply to an existing ticket
         const existingTicket = await findExistingTicketForReply(inReplyTo, references, subject);
         if (existingTicket) {
-            return await appendClientReplyToTicket(existingTicket, emailData);
+            // Determine if the sender is a known Vendor
+            const VendorModel = require('../models/vendor');
+            const vendors = await VendorModel.findAllVendors();
+            const isVendor = vendors.some(v => v.emails.includes(from));
+            
+            if (isVendor) {
+                return await appendVendorReplyToTicket(existingTicket, emailData);
+            } else {
+                return await appendClientReplyToTicket(existingTicket, emailData);
+            }
         }
 
         // 1. Identify Sender
