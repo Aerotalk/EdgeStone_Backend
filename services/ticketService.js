@@ -102,9 +102,13 @@ const findExistingTicketForReply = async (inReplyTo, references, subject) => {
     }
 
     // 3. Subject fallback: "Re: <original subject>" — strip Re:/Fwd: prefixes and match
+    // BUG FIX: Only apply subject fallback if it ACTUALLY had a Re:/Fwd: prefix!
+    // This prevents generic subjects like "Test", "Urgent", or "Help" from cross-contaminating unrelated tickets.
     if (subject) {
+        const isReplyPattern = /^(Re|Fwd|FW|RE|FWD):\s*/i.test(subject);
         const stripped = subject.replace(/^(Re|Fwd|FW|RE|FWD):\s*/gi, '').trim();
-        if (stripped) {
+        
+        if (stripped && isReplyPattern) {
             const allTickets = await TicketModel.findAllTickets();
             const match = allTickets.find(t =>
                 t.header && t.header.replace(/^(Re|Fwd|FW|RE|FWD):\s*/gi, '').trim() === stripped
