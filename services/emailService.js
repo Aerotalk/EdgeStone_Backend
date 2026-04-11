@@ -258,10 +258,19 @@ const fetchNewGraphEmails = async () => {
                 continue;
             }
 
-            // BUG FIX: Only skip emails sent FROM our own support mailbox (exact match)
-            // Previously used domain match (@edgestone.in) which silently dropped ALL edgestone.in emails
-            if (ownEmail && fromAddr.toLowerCase() === ownEmail) {
-                logger.info(`🔁 Skipping email from own mailbox (${fromAddr}) — loop prevention`);
+            // 🛡️ CRITICAL LOOP PREVENTION AND BOUNCE FILTERING 🛡️
+            const subjectLower = (msg.subject || '').toLowerCase();
+            const isOwnEmail = ownEmail && fromAddr.toLowerCase() === ownEmail;
+            const isSystemBounce = 
+                fromAddr.toLowerCase().includes('microsoftexchange') || 
+                fromAddr.toLowerCase().includes('postmaster@') || 
+                fromAddr.toLowerCase().includes('mailer-daemon@');
+            const isBounceSubject = 
+                subjectLower.includes('undeliverable:') || 
+                subjectLower.includes('delivery status notification');
+
+            if (isOwnEmail || isSystemBounce || isBounceSubject) {
+                logger.info(`🔁 LOOP PREVENTION: Skipping email from ${fromAddr} (Subject: ${msg.subject})`);
                 await markEmailAsRead(msg.id, accessToken);
                 continue;
             }
