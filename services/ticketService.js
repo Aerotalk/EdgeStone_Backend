@@ -598,7 +598,13 @@ const replyToVendor = async (ticketId, message, agentEmail, agentName) => {
 
     try {
         // 1. Fetch the ticket
-        const ticket = await TicketModel.findById(ticketId);
+        let ticket;
+        if (ticketId.startsWith('#')) {
+            const tickets = await TicketModel.findAllTickets();
+            ticket = tickets.find(t => t.ticketId === ticketId);
+        } else {
+            ticket = await TicketModel.findTicketById(ticketId);
+        }
         if (!ticket) throw new Error(`Ticket ${ticketId} not found`);
 
         // Determine vendor email — stored on the ticket, or fall back to env default
