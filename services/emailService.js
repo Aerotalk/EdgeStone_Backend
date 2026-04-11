@@ -11,11 +11,6 @@ let graphAccessToken = null;
 let tokenExpiresAt = 0;
 let graphPollInterval = null;
 
-// In-memory set of Graph message IDs already processed in this server session.
-// Prevents duplicate processing when markEmailAsRead hasn't propagated yet
-// (e.g. rapid successive polls or temporary permission failures).
-const processedGraphIds = new Set();
-
 const getGraphAccessToken = async () => {
     const tenantId = process.env.TENANT_ID;
     const clientId = process.env.CLIENT_ID;
@@ -219,11 +214,8 @@ const fetchNewGraphEmails = async () => {
         return;
     }
 
-    logger.debug(`🔍 Polling Microsoft Graph INBOX for UNREAD messages in ${userEmail}...`);
-    // IMPORTANT: Use /mailFolders/inbox/messages (not /messages) so we only poll the inbox.
-    // The bare /messages endpoint queries ALL folders (Inbox + Sent + Drafts + Junk).
-    // Without this, auto-replies sitting in Sent Items get re-processed as client emails.
-    const messagesUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/mailFolders/inbox/messages?$filter=isRead eq false&$top=20&$select=id,internetMessageId,subject,from,toRecipients,body,receivedDateTime,internetMessageHeaders,hasAttachments`;
+    logger.debug(`🔍 Polling Microsoft Graph for UNREAD messages in ${userEmail}...`);
+    const messagesUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/messages?$filter=isRead eq false&$top=20&$select=id,internetMessageId,subject,from,toRecipients,body,receivedDateTime,internetMessageHeaders,hasAttachments`;
 
     try {
         const response = await fetch(messagesUrl, {
@@ -293,18 +285,7 @@ const fetchNewGraphEmails = async () => {
             logger.info(`📩 Graph Email received | from: ${fromAddr} | to: ${recipient} | subject: "${emailData.subject}"`);
 
             try {
-                // Deduplication safety net: skip if already processed this Graph message ID
-                if (processedGraphIds.has(msg.id)) {
-                    logger.info(`🔁 Skipping already-processed Graph message ${msg.id}`);
-                    await markEmailAsRead(msg.id, accessToken);
-                    continue;
-                }
-
                 await ticketService.createTicketFromEmail(emailData);
-
-                // Mark as processed in memory BEFORE awaiting markEmailAsRead
-                // so a rapid re-poll won't duplicate it even if the PATCH is slow
-                processedGraphIds.add(msg.id);
                 await markEmailAsRead(msg.id, accessToken);
             } catch (e) {
                 logger.error(`❌ Error creating ticket from Graph email: ${e.message}`, { stack: e.stack });
