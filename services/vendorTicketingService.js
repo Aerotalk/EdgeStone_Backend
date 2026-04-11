@@ -106,8 +106,11 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
         logger.info(`✅ Vendor Reply added to database for Ticket ${ticket.ticketId}`);
 
         // 3. Send Email explicitly to the vendor
-        // We use sendAgentReplyEmail without inReplyTo/references for now to start a fresh thread with the vendor NOC
         const emailService = require('./emailService');
+        
+        // Provide the ticket's messageId so the email threads properly on the vendor side
+        const threadMessageId = ticket.messageId || null;
+
         const sentResult = await emailService.sendAgentReplyEmail({
             to: vendorContactEmails,
             cc: cc || [],
@@ -124,11 +127,24 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
                 </div>
             `,
             text: message,
-            inReplyTo: null, 
-            references: null 
+            inReplyTo: threadMessageId, 
+            references: threadMessageId 
         });
 
         logger.info(`📤 Vendor reply email successfully routed to ${vendorContactEmails.join(', ')}`);
+
+        // 4. BULLETPROOF THREADING FIX: Save the outbound messageId!
+        // When the vendor replies, their email client will include this exact ID in the 'In-Reply-To' header.
+        // The backend `findExistingTicketForReply` will securely map it back using this ID, ignoring subject line completely.
+        try {
+            const outboundMessageId = sentResult?.messageId;
+            if (outboundMessageId) {
+                await TicketModel.updateReply(reply.id, { messageId: outboundMessageId });
+                logger.info(`💾 Saved outbound messageId ${outboundMessageId} to Vendor Reply for structural threading.`);
+            }
+        } catch (captureErr) {
+            logger.warn(`⚠️ Failed to capture vendor outbound messageId: ${captureErr.message}`);
+        }
 
         // Log Activity
         await prisma.activityLog.create({
