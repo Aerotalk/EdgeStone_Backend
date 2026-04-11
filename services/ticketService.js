@@ -607,7 +607,7 @@ const replyToVendor = async (ticketId, message, agentEmail, agentName) => {
         }
         if (!ticket) throw new Error(`Ticket ${ticketId} not found`);
 
-        // Determine vendor email — fetch from associated vendor or fall back to env default
+        // Determine vendor email — fetch from associated vendor, or via circuit, or fall back to env default
         let vendorContactEmail = process.env.DEFAULT_VENDOR_EMAIL;
         
         if (ticket.vendorId) {
@@ -615,6 +615,17 @@ const replyToVendor = async (ticketId, message, agentEmail, agentName) => {
             const vendor = await VendorModel.findVendorById(ticket.vendorId);
             if (vendor && vendor.emails && vendor.emails.length > 0) {
                 vendorContactEmail = vendor.emails[0];
+            }
+        } else if (ticket.circuitId) {
+            // Fallback: If ticket is a client ticket but has a circuit, look up the circuit's vendor
+            const prisma = require('../models/index');
+            const circuit = await prisma.circuit.findUnique({
+                where: { customerCircuitId: ticket.circuitId },
+                include: { vendor: true }
+            });
+            
+            if (circuit && circuit.vendor && circuit.vendor.emails && circuit.vendor.emails.length > 0) {
+                vendorContactEmail = circuit.vendor.emails[0];
             }
         }
         
