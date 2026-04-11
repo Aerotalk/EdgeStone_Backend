@@ -589,9 +589,82 @@ const updateTicket = async (ticketId, updates, agentName) => {
     }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// replyToVendor — Agent sends a reply to the vendor NOC email linked to the ticket.
+// Mirrors replyToTicket exactly but targets vendorEmail and saves category='vendor'.
+// ─────────────────────────────────────────────────────────────────────────────
+const replyToVendor = async (ticketId, message, agentEmail, agentName) => {
+    logger.info(`🔄 replyToVendor: Ticket ${ticketId} | Agent: ${agentName}`);
+
+    try {
+        // 1. Fetch the ticket
+        const ticket = await TicketModel.findById(ticketId);
+        if (!ticket) throw new Error(`Ticket ${ticketId} not found`);
+
+        // Determine vendor email — stored on the ticket, or fall back to env default
+        const vendorContactEmail = ticket.vendorEmail || process.env.DEFAULT_VENDOR_EMAIL;
+        if (!vendorContactEmail) {
+            throw new Error(`No vendor email for ticket ${ticket.ticketId}. Set vendorEmail on ticket or DEFAULT_VENDOR_EMAIL in .env.`);
+        }
+
+        logger.info(`📧 replyToVendor: Sending email to vendor: ${vendorContactEmail}`);
+
+        // 2. Save the reply in DB with category: 'vendor'
+        const reply = await TicketModel.addReply(ticket.id, {
+            text: message,
+            time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+            date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+            author: agentName || 'Agent',
+            type: 'agent',
+            category: 'vendor',
+            to: [vendorContactEmail],
+        });
+
+        logger.info(`✅ Vendor reply saved to DB for Ticket ${ticket.ticketId}`);
+
+        // 3. Send email to vendor via Graph API
+        const emailService = require('./emailService');
+        await emailService.sendAgentReplyEmail({
+            to: vendorContactEmail,
+            subject: `Re: ${ticket.header} [${ticket.ticketId}]`,
+            html: `
+                <div style="font-family: Arial, sans-serif;">
+                    <p>${message.replace(/\n/g, '<br>')}</p>
+                    <br/>
+                    <hr/>
+                    <p style="font-size: 12px; color: #666;">${agentName}<br/>EdgeStone Support</p>
+                </div>
+            `,
+            text: message,
+        });
+
+        logger.info(`📤 Vendor reply email sent to ${vendorContactEmail}`);
+
+        // 4. Log activity
+        const ActivityLogModel = require('../models/activityLog');
+        const now = new Date();
+        await ActivityLogModel.createActivityLog({
+            ticketId: ticket.id,
+            action: 'vendor_replied',
+            description: `${agentName} sent a reply to vendor (${vendorContactEmail})`,
+            time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+            date: now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+            author: agentName
+        });
+
+        return reply;
+
+    } catch (error) {
+        logger.error(`❌ Error in replyToVendor: ${error.message}`, { stack: error.stack });
+        throw error;
+    }
+};
+
 module.exports = {
     createTicketFromEmail,
     getTickets,
     updateTicket,
-    replyToTicket
+    replyToTicket,
+    replyToVendor
 };
+

@@ -75,9 +75,26 @@ const replyTicket = async (req, res, next) => {
     }
 };
 
+const replyVendorTicket = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { message } = req.body;
+        const agentName = req.user ? req.user.name : 'Agent';
+        const agentEmail = req.user ? req.user.email : 'support@edgestone.in';
+
+        logger.info(`📨 VENDOR REPLY | Ticket: ${id} | Agent: ${agentName}`);
+
+        const reply = await ticketService.replyToVendor(id, message, agentEmail, agentName);
+        res.status(201).json({ message: 'Vendor reply sent successfully', reply });
+    } catch (error) {
+        next(error);
+    }
+};
+
 module.exports = {
     getTickets,
     createTicket,
     updateTicket,
-    replyTicket
+    replyTicket,
+    replyVendorTicket
 };

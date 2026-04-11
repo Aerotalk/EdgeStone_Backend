@@ -10,6 +10,7 @@ router.get('/', protect, ticketController.getTickets);
 router.post('/', protect, ticketController.createTicket);
 router.patch('/:id', protect, ticketController.updateTicket); // Update ticket
 router.post('/:id/reply', protect, ticketController.replyTicket);
+router.post('/:id/vendor-reply', protect, ticketController.replyVendorTicket);
 
 // Work Notes routes
 router.post('/:ticketId/work-notes', protect, workNoteController.createWorkNote);
