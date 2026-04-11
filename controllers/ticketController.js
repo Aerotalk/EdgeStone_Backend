@@ -81,14 +81,24 @@ const replyTicket = async (req, res, next) => {
 const replyVendorTicket = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { message } = req.body;
+        const emailData = req.body; 
         const agentName = req.user ? req.user.name : 'Agent';
         const agentEmail = req.user ? req.user.email : 'support@edgestone.in';
 
         logger.info(`📨 VENDOR REPLY | Ticket: ${id} | Agent: ${agentName}`);
 
-        const reply = await vendorTicketingService.replyToVendor(id, message, agentEmail, agentName);
+        const reply = await vendorTicketingService.replyToVendor(id, emailData, agentEmail, agentName);
         res.status(201).json({ message: 'Vendor reply sent successfully', reply });
+    } catch (error) {
+        next(error);
+    }
+};
+
+const getVendorEmails = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const emails = await vendorTicketingService.getVendorEmailsForTicket(id);
+        res.json({ emails });
     } catch (error) {
         next(error);
     }
@@ -99,5 +109,6 @@ module.exports = {
     createTicket,
     updateTicket,
     replyTicket,
-    replyVendorTicket
+    replyVendorTicket,
+    getVendorEmails
 };

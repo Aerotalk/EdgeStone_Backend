@@ -62,13 +62,17 @@ const getGraphAccessToken = async () => {
 // This replaces nodemailer SMTP which is blocked by Azure AD Security Defaults.
 // Supports threading via In-Reply-To and References headers.
 // ─────────────────────────────────────────────────────────────────────────────
-const sendViaGraph = async ({ to, subject, html, text, inReplyTo, references }) => {
+const sendViaGraph = async ({ to, cc, bcc, subject, html, text, inReplyTo, references }) => {
     const senderEmail = process.env.SENDER_EMAIL || process.env.MAIL_USER;
     if (!senderEmail) {
         throw new Error('sendViaGraph: SENDER_EMAIL or MAIL_USER must be set in environment.');
     }
 
     const accessToken = await getGraphAccessToken();
+
+    const toArray = Array.isArray(to) ? to : [to].filter(Boolean);
+    const ccArray = Array.isArray(cc) ? cc : (cc ? [cc] : []);
+    const bccArray = Array.isArray(bcc) ? bcc : (bcc ? [bcc] : []);
 
     // Build the Graph API message body
     const message = {
@@ -77,11 +81,9 @@ const sendViaGraph = async ({ to, subject, html, text, inReplyTo, references }) 
             contentType: html ? 'HTML' : 'Text',
             content: html || text || '(No content)',
         },
-        toRecipients: [
-            {
-                emailAddress: { address: to }
-            }
-        ],
+        toRecipients: toArray.map(address => ({ emailAddress: { address } })),
+        ccRecipients: ccArray.map(address => ({ emailAddress: { address } })),
+        bccRecipients: bccArray.map(address => ({ emailAddress: { address } })),
         from: {
             emailAddress: {
                 address: senderEmail,
@@ -140,9 +142,9 @@ const sendViaGraph = async ({ to, subject, html, text, inReplyTo, references }) 
 // sendEmail — Auto-reply / system notification sender (public API)
 // Uses Graph API. No longer routes through SMTP.
 // ─────────────────────────────────────────────────────────────────────────────
-const sendEmail = async ({ to, subject, html, text, inReplyTo, references }) => {
+const sendEmail = async ({ to, cc, bcc, subject, html, text, inReplyTo, references }) => {
     // Input validation
-    if (!to || typeof to !== 'string' || !to.includes('@')) {
+    if (!to || (Array.isArray(to) && to.length === 0)) {
         throw new Error(`sendEmail: invalid "to" address: ${to}`);
     }
     if (!subject || !subject.trim()) {
@@ -155,17 +157,17 @@ const sendEmail = async ({ to, subject, html, text, inReplyTo, references }) => 
 
     // Sanitise subject — strip control characters that can cause header injection
     const safeSubject = subject.replace(/[\r\n\t]/g, ' ').trim();
-    logger.info(`📧 sendEmail: Routing auto-reply via Graph API | to: ${to} | subject: "${safeSubject}"`);
+    logger.info(`📧 sendEmail: Routing auto-reply via Graph API | to: ${Array.isArray(to)? to.join(', ') : to} | subject: "${safeSubject}"`);
 
-    return sendViaGraph({ to, subject: safeSubject, html, text, inReplyTo, references });
+    return sendViaGraph({ to, cc, bcc, subject: safeSubject, html, text, inReplyTo, references });
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // sendAgentReplyEmail — Agent reply sender (public API)
 // Uses Graph API. No longer routes through SMTP.
 // ─────────────────────────────────────────────────────────────────────────────
-const sendAgentReplyEmail = async ({ to, subject, html, text, inReplyTo, references }) => {
-    if (!to || typeof to !== 'string' || !to.includes('@')) {
+const sendAgentReplyEmail = async ({ to, cc, bcc, subject, html, text, inReplyTo, references }) => {
+    if (!to || (Array.isArray(to) && to.length === 0)) {
         throw new Error(`sendAgentReplyEmail: invalid "to" address: ${to}`);
     }
     if (!subject || !subject.trim()) {
@@ -173,9 +175,9 @@ const sendAgentReplyEmail = async ({ to, subject, html, text, inReplyTo, referen
     }
 
     const safeSubject = subject.replace(/[\r\n\t]/g, ' ').trim();
-    logger.info(`📧 sendAgentReplyEmail: Routing agent reply via Graph API | to: ${to} | subject: "${safeSubject}"`);
+    logger.info(`📧 sendAgentReplyEmail: Routing agent reply via Graph API | to: ${Array.isArray(to)? to.join(', ') : to} | subject: "${safeSubject}"`);
 
-    return sendViaGraph({ to, subject: safeSubject, html, text, inReplyTo, references });
+    return sendViaGraph({ to, cc, bcc, subject: safeSubject, html, text, inReplyTo, references });
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
