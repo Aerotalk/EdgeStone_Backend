@@ -1,0 +1,111 @@
+const TicketModel = require('../models/ticket');
+const logger = require('../utils/logger');
+const prisma = require('../models/index');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// replyToVendor
+// Separated out to isolate vendor routing logic from the primary client ticketing
+// ─────────────────────────────────────────────────────────────────────────────
+const replyToVendor = async (ticketId, message, agentEmail, agentName) => {
+    logger.info(`🔄 replyToVendor: Ticket ${ticketId} | Agent: ${agentName}`);
+
+    try {
+        // 1. Fetch the ticket
+        let ticket;
+        if (ticketId.startsWith('#')) {
+            const tickets = await TicketModel.findAllTickets();
+            ticket = tickets.find(t => t.ticketId === ticketId);
+        } else {
+            ticket = await TicketModel.findTicketById(ticketId);
+        }
+        if (!ticket) throw new Error(`Ticket ${ticketId} not found`);
+
+        // Determine vendor email — fetch from associated vendor, or via circuit, or fall back to env default
+        let vendorContactEmail = process.env.DEFAULT_VENDOR_EMAIL;
+        
+        if (ticket.vendorId) {
+            const VendorModel = require('../models/vendor');
+            const vendor = await VendorModel.findVendorById(ticket.vendorId);
+            if (vendor && vendor.emails && vendor.emails.length > 0) {
+                vendorContactEmail = vendor.emails[0];
+            }
+        } else if (ticket.circuitId) {
+            // Fallback: If ticket is a client ticket but has a circuit, look up the circuit's vendor
+            const circuit = await prisma.circuit.findUnique({
+                where: { customerCircuitId: ticket.circuitId },
+                include: { vendor: true }
+            });
+            
+            if (circuit && circuit.vendor && circuit.vendor.emails && circuit.vendor.emails.length > 0) {
+                vendorContactEmail = circuit.vendor.emails[0];
+            }
+        }
+        
+        if (!vendorContactEmail) {
+            throw new Error(`No vendor email found for ticket ${ticket.ticketId}. Please make sure the assigned vendor has an email address, or set DEFAULT_VENDOR_EMAIL in .env.`);
+        }
+
+        logger.info(`📧 replyToVendor: Sending email to vendor: ${vendorContactEmail}`);
+
+        // 2. Create Reply Record natively mapped to the vendor category
+        const reply = await TicketModel.addReply(ticket.id, {
+            text: message,
+            time: new Date().toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            }),
+            date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+            author: agentName || 'Agent',
+            type: 'agent',
+            category: 'vendor', // Explicitly marking this thread as vendor-side
+            to: [vendorContactEmail],
+        });
+
+        logger.info(`✅ Vendor Reply added to database for Ticket ${ticket.ticketId}`);
+
+        // 3. Send Email explicitly to the vendor
+        // We use sendAgentReplyEmail without inReplyTo/references for now to start a fresh thread with the vendor NOC
+        const emailService = require('./emailService');
+        const sentResult = await emailService.sendAgentReplyEmail({
+            to: vendorContactEmail,
+            subject: `Vendor Support Request: ${ticket.header} [${ticket.ticketId}]`,
+            html: `
+                <div style="font-family: Arial, sans-serif;">
+                    <p>Hello Vendor Support Team,</p>
+                    <p>Regarding circuit/reference <strong>${ticket.circuitId || ticket.ticketId}</strong>:</p>
+                    <p>${message.replace(/\n/g, '<br>')}</p>
+                    <br/>
+                    <hr/>
+                    <p style="font-size: 12px; color: #666;">${agentName}<br/>EdgeStone NOC / Partner Support</p>
+                </div>
+            `,
+            text: message,
+            inReplyTo: null, 
+            references: null 
+        });
+
+        logger.info(`📤 Vendor reply email successfully routed to ${vendorContactEmail}`);
+
+        // Log Activity
+        await prisma.activityLog.create({
+            data: {
+                action: 'vendor_replied',
+                description: `Agent ${agentName} replied in the vendor thread to ${vendorContactEmail}.`,
+                time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+                date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+                author: agentName || 'System',
+                ticketId: ticket.id
+            }
+        });
+
+        return reply;
+    } catch (error) {
+        logger.error(`❌ replyToVendor Error: ${error.message}`);
+        throw error;
+    }
+};
+
+module.exports = {
+    replyToVendor
+};

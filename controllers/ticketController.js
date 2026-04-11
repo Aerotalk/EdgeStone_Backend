@@ -1,6 +1,9 @@
 const ticketService = require('../services/ticketService');
+const vendorTicketingService = require('../services/vendorTicketingService');
 const logger = require('../utils/logger');
 const { getISTString } = require('../utils/timeUtils');
+
+// ... (other controller methods remain pointing to ticketService)
 
 const getTickets = async (req, res, next) => {
     try {
@@ -84,7 +87,7 @@ const replyVendorTicket = async (req, res, next) => {
 
         logger.info(`📨 VENDOR REPLY | Ticket: ${id} | Agent: ${agentName}`);
 
-        const reply = await ticketService.replyToVendor(id, message, agentEmail, agentName);
+        const reply = await vendorTicketingService.replyToVendor(id, message, agentEmail, agentName);
         res.status(201).json({ message: 'Vendor reply sent successfully', reply });
     } catch (error) {
         next(error);

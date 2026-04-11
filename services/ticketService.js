@@ -199,20 +199,33 @@ const createTicketFromEmail = async (emailData) => {
         }
 
         // 2. Parse Subject for Circuit ID
-        // Format: "98765432 || SF/SFO - TOK/HND-002"
         let circuitId = null;
         let parsedHeader = subject;
 
-        const circuitRegex = /^(\d+)\s*\|\|\s*(.+)$/;
-        const match = subject.match(circuitRegex);
+        // Smart Circuit Detection: Check against all known circuits in the database
+        const prisma = require('../models/index');
+        try {
+            const allCircuits = await prisma.circuit.findMany({ select: { customerCircuitId: true } });
+            for (const c of allCircuits) {
+                if (subject.includes(c.customerCircuitId)) {
+                    circuitId = c.customerCircuitId;
+                    logger.info(`🔌 Smart Auto-Detected Circuit ID from Subject: ${circuitId}`);
+                    break; // Stop at first match
+                }
+            }
+        } catch (dbErr) {
+            logger.error(`❌ Failed to auto-detect circuit from database: ${dbErr.message}`);
+        }
 
-        if (match) {
-            const refNum = match[1];
-            circuitId = match[2].trim();
-            // Keep the original subject as header, or format it? 
-            // User said: "98765432" is reference number, "SF/SFO..." is circuit ID.
-            // Let's keep the full subject as header for context, but store circuitId separately.
-            logger.info(`🔌 Found Circuit ID: ${circuitId} (Ref: ${refNum})`);
+        // Fallback to legacy regex detection if smart detection fails
+        if (!circuitId) {
+            const circuitRegex = /^(\d+)\s*\|\|\s*(.+)$/;
+            const match = subject.match(circuitRegex);
+            if (match) {
+                const refNum = match[1];
+                circuitId = match[2].trim();
+                logger.info(`🔌 Found Circuit ID via Regex: ${circuitId} (Ref: ${refNum})`);
+            }
         }
 
         // 3. Generate ID
@@ -589,108 +602,12 @@ const updateTicket = async (ticketId, updates, agentName) => {
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// replyToVendor — Agent sends a reply to the vendor NOC email linked to the ticket.
-// Mirrors replyToTicket exactly but targets vendorEmail and saves category='vendor'.
-// ─────────────────────────────────────────────────────────────────────────────
-const replyToVendor = async (ticketId, message, agentEmail, agentName) => {
-    logger.info(`🔄 replyToVendor: Ticket ${ticketId} | Agent: ${agentName}`);
 
-    try {
-        // 1. Fetch the ticket
-        let ticket;
-        if (ticketId.startsWith('#')) {
-            const tickets = await TicketModel.findAllTickets();
-            ticket = tickets.find(t => t.ticketId === ticketId);
-        } else {
-            ticket = await TicketModel.findTicketById(ticketId);
-        }
-        if (!ticket) throw new Error(`Ticket ${ticketId} not found`);
-
-        // Determine vendor email — fetch from associated vendor, or via circuit, or fall back to env default
-        let vendorContactEmail = process.env.DEFAULT_VENDOR_EMAIL;
-        
-        if (ticket.vendorId) {
-            const VendorModel = require('../models/vendor');
-            const vendor = await VendorModel.findVendorById(ticket.vendorId);
-            if (vendor && vendor.emails && vendor.emails.length > 0) {
-                vendorContactEmail = vendor.emails[0];
-            }
-        } else if (ticket.circuitId) {
-            // Fallback: If ticket is a client ticket but has a circuit, look up the circuit's vendor
-            const prisma = require('../models/index');
-            const circuit = await prisma.circuit.findUnique({
-                where: { customerCircuitId: ticket.circuitId },
-                include: { vendor: true }
-            });
-            
-            if (circuit && circuit.vendor && circuit.vendor.emails && circuit.vendor.emails.length > 0) {
-                vendorContactEmail = circuit.vendor.emails[0];
-            }
-        }
-        
-        if (!vendorContactEmail) {
-            throw new Error(`No vendor email found for ticket ${ticket.ticketId}. Please make sure the assigned vendor has an email address, or set DEFAULT_VENDOR_EMAIL in .env.`);
-        }
-
-        logger.info(`📧 replyToVendor: Sending email to vendor: ${vendorContactEmail}`);
-
-        // 2. Save the reply in DB with category: 'vendor'
-        const reply = await TicketModel.addReply(ticket.id, {
-            text: message,
-            time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
-            date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
-            author: agentName || 'Agent',
-            type: 'agent',
-            category: 'vendor',
-            to: [vendorContactEmail],
-        });
-
-        logger.info(`✅ Vendor reply saved to DB for Ticket ${ticket.ticketId}`);
-
-        // 3. Send email to vendor via Graph API
-        const emailService = require('./emailService');
-        await emailService.sendAgentReplyEmail({
-            to: vendorContactEmail,
-            subject: `Re: ${ticket.header} [${ticket.ticketId}]`,
-            html: `
-                <div style="font-family: Arial, sans-serif;">
-                    <p>${message.replace(/\n/g, '<br>')}</p>
-                    <br/>
-                    <hr/>
-                    <p style="font-size: 12px; color: #666;">${agentName}<br/>EdgeStone Support</p>
-                </div>
-            `,
-            text: message,
-        });
-
-        logger.info(`📤 Vendor reply email sent to ${vendorContactEmail}`);
-
-        // 4. Log activity
-        const ActivityLogModel = require('../models/activityLog');
-        const now = new Date();
-        await ActivityLogModel.createActivityLog({
-            ticketId: ticket.id,
-            action: 'vendor_replied',
-            description: `${agentName} sent a reply to vendor (${vendorContactEmail})`,
-            time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
-            date: now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
-            author: agentName
-        });
-
-        return reply;
-
-    } catch (error) {
-        logger.error(`❌ Error in replyToVendor: ${error.message}`, { stack: error.stack });
-        throw error;
-    }
-};
 
 module.exports = {
     createTicketFromEmail,
     getTickets,
     updateTicket,
-    replyToTicket,
-    replyToVendor
+    replyToTicket
 };
 
