@@ -55,6 +55,7 @@ model Client {
   updatedAt DateTime  @updatedAt
   tickets   Ticket[]
   circuits  Circuit[]
+  slas      Sla[] // customer SLAs
 }
 
 model Vendor {
@@ -68,6 +69,7 @@ model Vendor {
   updatedAt DateTime  @updatedAt
   circuits  Circuit[]
   tickets   Ticket[]
+  slas      Sla[]
 }
 
 model Ticket {
@@ -199,7 +201,8 @@ model ActivityLog {
 // --- Circuit Management Models ---
 
 model Circuit {
-  id String @id @default(uuid())
+  id   String @id @default(uuid())
+  type String @default("UNPROTECTED") // PROTECTED | UNPROTECTED
 
   // --- Customer Details ---
   customerCircuitId  String  @unique // "Customer Circuit ID"
@@ -214,7 +217,7 @@ model Circuit {
   supplierServiceDescription String? // "Supplier Service description"
   supplierContractTermMonths Int? // "Supplicr Contract term (In Months)"
   supplierContractType       String? // "Contract Type" (Supplier side)
-  billingStartDate           String? // "Billing Start Date" (kept as String to match pattern, or DateTime if preferred)
+  billingStartDate           String? // "Billing Start Date"
 
   // --- Relations ---
   clientId String?
@@ -223,16 +226,21 @@ model Circuit {
   vendorId String?
   vendor   Vendor? @relation(fields: [vendorId], references: [id])
 
-  sla SLA?
+  // Legacy SLA value (stores raw % string like "99.50%")
+  circuitSlaValue CircuitSLAValue?
+
+  // New SLA management (full lifecycle SLAs per vendor/customer)
+  slas     Sla[]
   slaRules SLARule[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-model SLA {
+// Legacy: stores raw SLA % string (e.g. "99.50%") against a circuit
+model CircuitSLAValue {
   id    String @id @default(uuid())
-  value String // e.g. "99.50%" from "SLA" column
+  value String // e.g. "99.50%"
 
   circuitId String  @unique
   circuit   Circuit @relation(fields: [circuitId], references: [id])
@@ -241,7 +249,7 @@ model SLA {
   updatedAt DateTime @updatedAt
 }
 
-// --- SLA Rules Models ---
+// --- Existing SLA Rule Wizard Models (used by frontend UI) ---
 
 model SLARule {
   id               String   @id @default(uuid())
@@ -250,24 +258,89 @@ model SLARule {
   targetType       String   // "vendor" | "customer"
   targetId         String
   targetName       String
-  
-  circuit          Circuit  @relation(fields: [circuitId], references: [id])
-  
-  conditions       SLARuleCondition[]
 
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  circuit    Circuit          @relation(fields: [circuitId], references: [id])
+  conditions SLARuleCondition[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model SLARuleCondition {
-  id             String   @id @default(uuid())
-  upperLimit     Float?
-  upperOperator  String?
-  lowerLimit     Float?
-  lowerOperator  String?
-  compensation   Float
+  id            String  @id @default(uuid())
+  upperLimit    Float?
+  upperOperator String?
+  lowerLimit    Float?
+  lowerOperator String?
+  compensation  Float
 
-  ruleId         String
-  rule           SLARule  @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  ruleId String
+  rule   SLARule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
 }
 
+// ============================================================
+// --- SLA Management Engine (new) ---
+// ============================================================
+
+// One SLA per (circuit + vendor) OR one per (circuit + customer)
+// Rules are fully dynamic per SLA — different vendors/circuits get different tiers
+model Sla {
+  id String @id @default(uuid())
+
+  circuitId String
+  circuit   Circuit @relation(fields: [circuitId], references: [id])
+
+  appliesTo String // VENDOR | CUSTOMER
+
+  vendorId String?
+  vendor   Vendor? @relation(fields: [vendorId], references: [id])
+
+  customerId String?
+  customer   Client? @relation(fields: [customerId], references: [id])
+
+  // Calculated fields — updated by the calculation engine
+  totalDowntimeMinutes Float  @default(0)
+  availabilityFactor   Float? // percentage 0-100, null until first calculation
+  compensationAmount   Float  @default(0)
+
+  status       String  @default("SAFE") // SAFE | BREACHED
+  statusReason String?
+
+  // Dynamic rules — each SLA has its own independent tier set
+  rules     SlaRule[]
+  auditLogs SlaAuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Availability tier rule — fully dynamic per SLA
+// Semantics: upperLimit upperOperator Av lowerOperator lowerLimit  → compensationPercentage
+// Example:   99          >            Av >=            95           → 5%  of MRC
+model SlaRule {
+  id    String @id @default(uuid())
+  slaId String
+  sla   Sla    @relation(fields: [slaId], references: [id], onDelete: Cascade)
+
+  upperLimit    Float?  // null = open upper bound (e.g. Av > 99)
+  upperOperator String? // "<" | "<="
+  lowerLimit    Float?  // null = open lower bound
+  lowerOperator String? // ">" | ">="
+
+  compensationPercentage Float @default(0) // % of MRC
+
+  createdAt DateTime @default(now())
+}
+
+// Immutable audit trail for every SLA status change
+model SlaAuditLog {
+  id    String @id @default(uuid())
+  slaId String
+  sla   Sla    @relation(fields: [slaId], references: [id], onDelete: Cascade)
+
+  oldStatus String
+  newStatus String
+  reason    String
+
+  timestamp DateTime @default(now())
+}

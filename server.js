@@ -152,6 +152,14 @@ try {
     logger.error('❌ Failed to load SLA Record Routes:', error);
 }
 
+try {
+    app.use('/api/sla', require('./routes/slaRoutes'));
+    logger.debug('🛡️  SLA Management routes registered');
+} catch (error) {
+    logger.error('❌ Failed to load SLA Management Routes:', error);
+}
+
+
 // Error Handler
 app.use(errorHandler);
 
