@@ -1,39 +1,11 @@
-const SLARecordModel = require('../models/slaRecord');
+const slaRecordService = require('../services/slaRecordService');
 const logger = require('../utils/logger');
-const prisma = require('../models/index');
 
 exports.getAllSLARecords = async (req, res) => {
     try {
         logger.debug('📝 Request received: getAllSLARecords');
-        
-        const slaRecords = await prisma.sLARecord.findMany({
-            include: {
-                ticket: {
-                    select: {
-                        ticketId: true
-                    }
-                }
-            },
-            orderBy: {
-                startDate: 'desc'
-            }
-        });
-
-        // Format to match frontend structure
-        const formattedRecords = slaRecords.map(record => ({
-            id: record.id,
-            ticketId: record.ticket?.ticketId || 'Unknown',
-            startDate: record.startDate,
-            displayStartDate: record.startDate,  // Frontend expects this
-            startTime: record.startTime,
-            closedTime: record.closedTime || '-',
-            closeDate: record.closeDate || '-',
-            status: record.status, // 'Breached' | 'Safe'
-            compensation: record.compensation || '-',
-            statusReason: record.statusReason || '' 
-        }));
-
-        res.status(200).json({ success: true, data: formattedRecords });
+        const data = await slaRecordService.getAllSLARecords();
+        res.status(200).json({ success: true, data });
     } catch (error) {
         logger.error('❌ Error fetching SLA records:', error);
         res.status(500).json({ success: false, message: 'Failed to fetch SLA records' });
@@ -43,9 +15,7 @@ exports.getAllSLARecords = async (req, res) => {
 exports.getSLARecordByTicketId = async (req, res) => {
     try {
         const { ticketId } = req.params;
-        const record = await prisma.sLARecord.findUnique({
-            where: { ticketId }
-        });
+        const record = await slaRecordService.getSLARecordByTicketId(ticketId);
 
         if (!record) {
             return res.status(404).json({ success: false, message: 'SLA record not found' });
@@ -61,18 +31,7 @@ exports.getSLARecordByTicketId = async (req, res) => {
 exports.createSLARecord = async (req, res) => {
     try {
         const { id, ticketId, startDate, startTime } = req.body;
-
-        const newRecord = await prisma.sLARecord.create({
-            data: {
-                id,
-                ticketId,
-                startDate,
-                startTime,
-                status: 'Safe',
-                compensation: '-',
-                statusReason: ''
-            }
-        });
+        const newRecord = await slaRecordService.createSLARecord({ id, ticketId, startDate, startTime });
 
         res.status(201).json({ success: true, data: newRecord });
     } catch (error) {
@@ -86,19 +45,14 @@ exports.updateSLAClosure = async (req, res) => {
         const { ticketId } = req.params;
         const { closeDate, closedTime } = req.body;
 
-        const existingRecord = await prisma.sLARecord.findUnique({ where: { ticketId } });
-        if (!existingRecord) {
-            return res.status(404).json({ success: false, message: 'SLA record not found' });
-        }
-
-        const updatedRecord = await prisma.sLARecord.update({
-            where: { ticketId },
-            data: { closeDate, closedTime }
-        });
+        const updatedRecord = await slaRecordService.updateSLAClosure(ticketId, closeDate, closedTime);
 
         res.status(200).json({ success: true, data: updatedRecord });
     } catch (error) {
         logger.error('❌ Error updating SLA closure:', error);
+        if (error.message === 'SLA record not found') {
+            return res.status(404).json({ success: false, message: error.message });
+        }
         res.status(500).json({ success: false, message: 'Failed to update SLA closure' });
     }
 };
@@ -119,34 +73,14 @@ exports.updateSLARecordStatus = async (req, res) => {
         const agentName = req.user ? req.user.name : 'Agent';
         logger.info(`🔄 ${agentName} updating SLA record ${id} status to ${status}. Reason: ${reason}`);
         
-        const existingRecord = await prisma.sLARecord.findUnique({ where: { id } });
-        if (!existingRecord) {
-            return res.status(404).json({ success: false, message: 'SLA record not found' });
-        }
-
-        const updatedRecord = await prisma.sLARecord.update({
-            where: { id },
-            data: { status, statusReason: reason, compensation: status === 'Safe' ? '-' : existingRecord.compensation }
-        });
-
-        // Log the change into the ActivityLog
-        await prisma.activityLog.create({
-            data: {
-                action: 'sla_status_changed',
-                description: `SLA status changed to ${status}. Reason: ${reason}`,
-                time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
-                date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
-                author: agentName,
-                oldValue: existingRecord.status,
-                newValue: status,
-                fieldName: 'sla_status',
-                ticketId: existingRecord.ticketId
-            }
-        });
+        const updatedRecord = await slaRecordService.updateSLARecordStatus(id, status, reason, agentName);
 
         res.status(200).json({ success: true, message: 'SLA record updated successfully', data: updatedRecord });
     } catch (error) {
         logger.error('❌ Error updating SLA record:', error);
+        if (error.message === 'SLA record not found') {
+            return res.status(404).json({ success: false, message: error.message });
+        }
         res.status(500).json({ success: false, message: 'Failed to update SLA record' });
     }
 };
