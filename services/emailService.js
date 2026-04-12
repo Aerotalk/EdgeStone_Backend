@@ -309,12 +309,15 @@ const fetchNewGraphEmails = async () => {
                     continue;
                 }
 
+                // Record as processed BEFORE awaiting ticket creation to prevent race conditions across polls
+                processedGraphIds.add(msg.id);
+
                 await ticketService.createTicketFromEmail(emailData);
 
-                // Record as processed BEFORE awaiting PATCH so rapid re-polls see it immediately
-                processedGraphIds.add(msg.id);
                 await markEmailAsRead(msg.id, accessToken);
             } catch (e) {
+                // Remove from processed pool if ticket creation failed so it can be retried later, or keep it depending on strictness.
+                // We keep it to prevent infinite loops of bad emails crashing the parser
                 logger.error(`❌ Error creating ticket from Graph email: ${e.message}`, { stack: e.stack });
             }
         }

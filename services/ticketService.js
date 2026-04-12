@@ -355,6 +355,28 @@ const createTicketFromEmail = async (emailData) => {
 
         logger.info(`✅ ${ticketType} Ticket Created Successfully: ${ticket.ticketId} at ${ticket.receivedTime}`);
 
+        // --- NEW: Automatically map SLA on Ticket Creation ---
+        try {
+            const slaStart = new Date(emailReceivedDate.getTime() + 60000); // starts 1 min after
+            const startDateStr = slaStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+            const startTimeStr = slaStart.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' hrs';
+            
+            await prisma.sLARecord.create({
+                data: {
+                    ticketId: ticket.id,
+                    startDate: startDateStr,
+                    startTime: startTimeStr,
+                    status: 'Safe',
+                    compensation: '-',
+                    statusReason: ''
+                }
+            });
+            logger.info(`✅ SLA Record mapped dynamically for Ticket ${ticket.ticketId}`);
+        } catch (slaErr) {
+            logger.error(`❌ Failed to automatically start SLA Record on Ticket open: ${slaErr.message}`);
+        }
+        // --------------------------------------------------------
+
         // 6. Send Auto-Reply with 5-second delay (Only for Clients)
         if (ticketType === 'Vendor') {
             logger.info(`⏰ Skipping auto-reply for Vendor ticket ${ticket.ticketId} to prevent infinite automated loops.`);
