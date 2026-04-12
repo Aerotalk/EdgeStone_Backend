@@ -1,17 +1,11 @@
 const SLARecordModel = require('../models/slaRecord');
 const logger = require('../utils/logger');
+const prisma = require('../models/index');
 
 exports.getAllSLARecords = async (req, res) => {
     try {
         logger.debug('📝 Request received: getAllSLARecords');
         
-        // Let's use Prisma directly here or model if it supports findMany
-        // The model currently only exports find unique, create, update, delete.
-        // We will fetch via prisma directly since it's the standard idiom in the app 
-        // when model is missing a method.
-        const prisma = require('../models/index');
-        
-        // Fetch all SLA records, including related ticket to get the friendly ticketId
         const slaRecords = await prisma.sLARecord.findMany({
             include: {
                 ticket: {
@@ -36,13 +30,76 @@ exports.getAllSLARecords = async (req, res) => {
             closeDate: record.closeDate || '-',
             status: record.status, // 'Breached' | 'Safe'
             compensation: record.compensation || '-',
-            statusReason: '' // Option to add model support later
+            statusReason: record.statusReason || '' 
         }));
 
         res.status(200).json({ success: true, data: formattedRecords });
     } catch (error) {
         logger.error('❌ Error fetching SLA records:', error);
         res.status(500).json({ success: false, message: 'Failed to fetch SLA records' });
+    }
+};
+
+exports.getSLARecordByTicketId = async (req, res) => {
+    try {
+        const { ticketId } = req.params;
+        const record = await prisma.sLARecord.findUnique({
+            where: { ticketId }
+        });
+
+        if (!record) {
+            return res.status(404).json({ success: false, message: 'SLA record not found' });
+        }
+
+        res.status(200).json({ success: true, data: record });
+    } catch (error) {
+        logger.error('❌ Error fetching SLA record by ticket:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch SLA record' });
+    }
+};
+
+exports.createSLARecord = async (req, res) => {
+    try {
+        const { id, ticketId, startDate, startTime } = req.body;
+
+        const newRecord = await prisma.sLARecord.create({
+            data: {
+                id,
+                ticketId,
+                startDate,
+                startTime,
+                status: 'Safe',
+                compensation: '-',
+                statusReason: ''
+            }
+        });
+
+        res.status(201).json({ success: true, data: newRecord });
+    } catch (error) {
+        logger.error('❌ Error creating SLA record:', error);
+        res.status(500).json({ success: false, message: 'Failed to create SLA record' });
+    }
+};
+
+exports.updateSLAClosure = async (req, res) => {
+    try {
+        const { ticketId } = req.params;
+        const { closeDate, closedTime } = req.body;
+
+        const existingRecord = await prisma.sLARecord.findUnique({ where: { ticketId } });
+        if (!existingRecord) {
+            return res.status(404).json({ success: false, message: 'SLA record not found' });
+        }
+
+        const updatedRecord = await prisma.sLARecord.update({
+            where: { ticketId },
+            data: { closeDate, closedTime }
+        });
+
+        res.status(200).json({ success: true, data: updatedRecord });
+    } catch (error) {
+        logger.error('❌ Error updating SLA closure:', error);
+        res.status(500).json({ success: false, message: 'Failed to update SLA closure' });
     }
 };
 
@@ -61,11 +118,6 @@ exports.updateSLARecordStatus = async (req, res) => {
 
         const agentName = req.user ? req.user.name : 'Agent';
         logger.info(`🔄 ${agentName} updating SLA record ${id} status to ${status}. Reason: ${reason}`);
-
-        // Update the SLA record
-        // Model only updates fields. If we want to store reason, we would add to activity logs or model.
-        // Since schema doesn't have statusReason, we will log it as activity.
-        const prisma = require('../models/index');
         
         const existingRecord = await prisma.sLARecord.findUnique({ where: { id } });
         if (!existingRecord) {
@@ -74,7 +126,7 @@ exports.updateSLARecordStatus = async (req, res) => {
 
         const updatedRecord = await prisma.sLARecord.update({
             where: { id },
-            data: { status, compensation: status === 'Safe' ? '-' : existingRecord.compensation }
+            data: { status, statusReason: reason, compensation: status === 'Safe' ? '-' : existingRecord.compensation }
         });
 
         // Log the change into the ActivityLog

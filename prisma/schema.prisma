@@ -152,6 +152,7 @@ model SLARecord {
   closeDate    String?
   status       String // Breached, Safe
   compensation String?
+  statusReason String?
 
   ticketId String @unique
   ticket   Ticket @relation(fields: [ticketId], references: [id])
