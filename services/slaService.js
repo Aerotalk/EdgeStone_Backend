@@ -35,11 +35,13 @@ function ruleMatches(rule, availability) {
     const upperOk =
         rule.upperLimit === null || rule.upperOperator === null
             ? true
-            : evalOperator(rule.upperOperator, availability, rule.upperLimit);
+            // Evaluate as: Rule.UpperLimit [operator] Availability
+            : evalOperator(rule.upperOperator, rule.upperLimit, availability);
 
     const lowerOk =
         rule.lowerLimit === null || rule.lowerOperator === null
             ? true
+            // Evaluate as: Availability [operator] Rule.LowerLimit
             : evalOperator(rule.lowerOperator, availability, rule.lowerLimit);
 
     return upperOk && lowerOk;
@@ -64,9 +66,11 @@ function ruleToInterval(rule) {
     let lower = rule.lowerLimit ?? -Infinity;
     let upper = rule.upperLimit ??  Infinity;
 
-    // Move exclusive bounds inward so border-touching is not an overlap
+    // Adjust for strict inequalities so overlap detection works properly
     if (rule.lowerOperator === '>') lower += EPS;
-    if (rule.upperOperator === '<') upper -= EPS;
+    // For upper limits evaluated as "Upper [op] Av":
+    // "Upper > Av" means Av < Upper (exclusive).
+    if (rule.upperOperator === '>' || rule.upperOperator === '<') upper -= EPS;
 
     return { lower, upper };
 }
@@ -205,14 +209,14 @@ async function createSla(data) {
             throw err;
         }
 
-        if (!['<', '<='].includes(r.upperOperator) && hasUpper) {
-            const err = new Error(`Rule ${idx + 1}: upperOperator must be "<" or "<=".`);
+        if (hasUpper && !['<', '<=', '>', '>='].includes(r.upperOperator)) {
+            const err = new Error(`Rule ${idx + 1}: upperOperator is invalid.`);
             err.statusCode = 400;
             throw err;
         }
 
-        if (!['>', '>='].includes(r.lowerOperator) && hasLower) {
-            const err = new Error(`Rule ${idx + 1}: lowerOperator must be ">" or ">=".`);
+        if (hasLower && !['<', '<=', '>', '>='].includes(r.lowerOperator)) {
+            const err = new Error(`Rule ${idx + 1}: lowerOperator is invalid.`);
             err.statusCode = 400;
             throw err;
         }
@@ -550,13 +554,13 @@ function validateAndFormatRule(r, idx = 1) {
         err.statusCode = 400;
         throw err;
     }
-    if (hasUpper && !['<', '<='].includes(r.upperOperator)) {
-        const err = new Error(`Rule ${idx}: upperOperator must be "<" or "<=".`);
+    if (hasUpper && !['<', '<=', '>', '>='].includes(r.upperOperator)) {
+        const err = new Error(`Rule ${idx}: upperOperator is invalid.`);
         err.statusCode = 400;
         throw err;
     }
-    if (hasLower && !['>', '>='].includes(r.lowerOperator)) {
-        const err = new Error(`Rule ${idx}: lowerOperator must be ">" or ">=".`);
+    if (hasLower && !['<', '<=', '>', '>='].includes(r.lowerOperator)) {
+        const err = new Error(`Rule ${idx}: lowerOperator is invalid.`);
         err.statusCode = 400;
         throw err;
     }
