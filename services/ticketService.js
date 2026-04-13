@@ -747,10 +747,37 @@ const updateTicket = async (ticketId, updates, agentName) => {
                                     
                                     logger.info(`⚙️ Syncing ${diffMins} mins downtime to ${circuitSlas.length} SLA(s) for Circuit ${circuit.id} (Uptime Baseline: ${totalUptimeMinutes}m)`);
                                     
+                                    let highestCompensation = 0;
+                                    let highestStatus = 'SAFE';
                                     for (const s of circuitSlas) {
-                                        await slaService.calculateSla(s.id, diffMins, totalUptimeMinutes);
+                                        const updatedSla = await slaService.calculateSla(s.id, diffMins, totalUptimeMinutes);
+                                        // Track the worst-case compensation across all SLAs on the circuit
+                                        if (updatedSla.compensationAmount > highestCompensation) {
+                                            highestCompensation = updatedSla.compensationAmount;
+                                            highestStatus = updatedSla.status;
+                                        }
                                     }
-                                    logger.info(`✅ Successfully propagated ticket downtime to overarching Circuit SLA engine.`);
+                                    logger.info(`✅ Circuit SLA engine results: status=${highestStatus}, compensation=${highestCompensation}%`);
+
+                                    // 4. Write compensation result BACK to the ticket's SLARecord
+                                    // This is what makes compensation visible in the Ticket dashboard sidebar
+                                    const compensationDisplay = highestCompensation > 0 
+                                        ? `${highestCompensation}% of MRC` 
+                                        : '-';
+                                    const slaStatusDisplay = highestStatus === 'BREACHED' ? 'Breached' : 'Safe';
+
+                                    await prisma.sLARecord.update({
+                                        where: { ticketId: ticket.id },
+                                        data: {
+                                            compensation: compensationDisplay,
+                                            status: slaStatusDisplay,
+                                            statusReason: highestCompensation > 0
+                                                ? `Circuit SLA breached: ${highestCompensation}% compensation due`
+                                                : 'Circuit availability within SLA bounds'
+                                        }
+                                    });
+                                    logger.info(`💾 SLARecord updated — compensation: "${compensationDisplay}", status: "${slaStatusDisplay}"`);
+
                                 } else {
                                     logger.warn(`⚠️ Circuit ${circuit.id} has no active SLAs to update.`);
                                 }
