@@ -13,8 +13,8 @@ const getAllSLARecords = async ({ search, filter, customStart, customEnd } = {})
             const baseTime = new Date(ticket.receivedAt || ticket.createdAt || new Date());
             const slaStart = new Date(baseTime.getTime() + 60000); 
 
-            const startDateStr = slaStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-            const startTimeStr = slaStart.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' hrs';
+            const startDateStr = slaStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+            const startTimeStr = slaStart.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' });
 
             await prisma.sLARecord.create({
                 data: {
@@ -52,11 +52,11 @@ const getAllSLARecords = async ({ search, filter, customStart, customEnd } = {})
         let parsedStart = null;
         
         if (record.startDate && record.startTime) {
-            const startRawStr = `${record.startDate} ${record.startTime.replace(' hrs', '')}`;
+            const startRawStr = `${record.startDate} ${record.startTime}`;
             parsedStart = new Date(startRawStr);
             
             if (record.closeDate && record.closedTime) {
-                const endRawStr = `${record.closeDate} ${record.closedTime.replace(' hrs', '')}`;
+                const endRawStr = `${record.closeDate} ${record.closedTime}`;
                 const parsedEnd = new Date(endRawStr);
                 
                 if (!isNaN(parsedStart.getTime()) && !isNaN(parsedEnd.getTime())) {
@@ -180,8 +180,8 @@ const updateSLARecordStatus = async (id, status, reason, agentName) => {
         data: {
             action: 'sla_status_changed',
             description: `SLA status changed to ${status}. Reason: ${reason}`,
-            time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
-            date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+            time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' }),
+            date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }),
             author: agentName,
             oldValue: existingRecord.status,
             newValue: status,
