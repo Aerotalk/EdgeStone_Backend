@@ -682,6 +682,74 @@ const updateTicket = async (ticketId, updates, agentName) => {
 
         logger.info(`✅ Ticket ${ticket.ticketId} updated successfully. New status: ${updatedTicket.status}`);
 
+        // --- NEW: SLA Engine Integration for Ticket Closure ---
+        if (finalUpdates.status === 'Closed' && ticket.status !== 'Closed') {
+            try {
+                // 1. Close the SLA record
+                const nowClosed = new Date();
+                const closeDate = nowClosed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+                const closedTime = nowClosed.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' hrs';
+                
+                const slaRecordService = require('./slaRecordService');
+                const updatedSlaRecord = await slaRecordService.updateSLAClosure(ticket.id, closeDate, closedTime);
+                
+                // 2. Calculate the specific ticket's downtime
+                if (updatedSlaRecord && updatedSlaRecord.startDate && updatedSlaRecord.startTime) {
+                    const startStr = `${updatedSlaRecord.startDate} ${updatedSlaRecord.startTime.replace(' hrs', '')}`;
+                    const endStr = `${updatedSlaRecord.closeDate} ${updatedSlaRecord.closedTime.replace(' hrs', '')}`;
+                    const sTime = new Date(startStr);
+                    const eTime = new Date(endStr);
+                    
+                    if (!isNaN(sTime.getTime()) && !isNaN(eTime.getTime())) {
+                        const diffMins = Math.round((eTime.getTime() - sTime.getTime()) / 60000);
+                        
+                        logger.info(`⏱️ Ticket ${ticket.ticketId} downtime calculated as ${diffMins} minutes.`);
+
+                        // 3. Forward downtime to Circuit SLA engine
+                        if (updatedTicket.circuitId && diffMins > 0) {
+                            const prisma = require('../models/index');
+                            
+                            // Find circuit UUID by customerCircuitId or supplierCircuitId
+                            const circuit = await prisma.circuit.findFirst({
+                                where: {
+                                    OR: [
+                                        { customerCircuitId: updatedTicket.circuitId },
+                                        { supplierCircuitId: updatedTicket.circuitId }
+                                    ]
+                                }
+                            });
+
+                            if (circuit) {
+                                // Find all SLAs belonging to this circuit
+                                const circuitSlas = await prisma.sla.findMany({ where: { circuitId: circuit.id } });
+                                
+                                if (circuitSlas.length > 0) {
+                                    const slaService = require('./slaService');
+                                    // Calculate exact minutes in the current month instead of flat 30 days
+                                    const daysInMonth = new Date(nowClosed.getFullYear(), nowClosed.getMonth() + 1, 0).getDate();
+                                    const totalUptimeMinutes = daysInMonth * 24 * 60; 
+                                    
+                                    logger.info(`⚙️ Syncing ${diffMins} mins downtime to ${circuitSlas.length} SLA(s) for Circuit ${circuit.id} (Uptime Baseline: ${totalUptimeMinutes}m)`);
+                                    
+                                    for (const s of circuitSlas) {
+                                        await slaService.calculateSla(s.id, diffMins, totalUptimeMinutes);
+                                    }
+                                    logger.info(`✅ Successfully propagated ticket downtime to overarching Circuit SLA engine.`);
+                                } else {
+                                    logger.warn(`⚠️ Circuit ${circuit.id} has no active SLAs to update.`);
+                                }
+                            } else {
+                                logger.error(`❌ Could not find exact Circuit UUID for ticket's circuitId string: ${updatedTicket.circuitId}`);
+                            }
+                        }
+                    }
+                }
+            } catch (slaErr) {
+                logger.error(`❌ Complete SLA Update Lifecycle failed for Ticket ${ticket.ticketId}: ${slaErr.message}`, { stack: slaErr.stack });
+            }
+        }
+        // -----------------------------------------------------------
+
         return updatedTicket;
 
     } catch (error) {
