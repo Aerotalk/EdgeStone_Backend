@@ -258,34 +258,40 @@ const createTicketFromEmail = async (emailData) => {
             }
         }
 
-        // 2. Parse Subject for Circuit ID
+        // 2. Strict Parse Subject for Circuit ID from Database
         let circuitId = null;
-        let parsedHeader = subject;
+        let circuitUUID = null;
 
-        // Smart Circuit Detection: Check against all known circuits in the database
         const prisma = require('../models/index');
         try {
-            const allCircuits = await prisma.circuit.findMany({ select: { customerCircuitId: true } });
+            // Fetch circuits including supplier IDs
+            const allCircuits = await prisma.circuit.findMany({ 
+                select: { id: true, customerCircuitId: true, supplierCircuitId: true } 
+            });
+            const upperSubject = subject.toUpperCase();
+
             for (const c of allCircuits) {
-                if (subject.includes(c.customerCircuitId)) {
+                if (c.customerCircuitId && upperSubject.includes(c.customerCircuitId.toUpperCase())) {
                     circuitId = c.customerCircuitId;
-                    logger.info(`🔌 Smart Auto-Detected Circuit ID from Subject: ${circuitId}`);
-                    break; // Stop at first match
+                    circuitUUID = c.id;
+                    logger.info(`🔌 Smart Auto-Detected Circuit ID from Subject: ${circuitId} (Customer ID)`);
+                    break;
+                }
+                if (c.supplierCircuitId && upperSubject.includes(c.supplierCircuitId.toUpperCase())) {
+                    circuitId = c.customerCircuitId; // Displayed fallback
+                    circuitUUID = c.id;
+                    logger.info(`🔌 Smart Auto-Detected Circuit ID from Subject: ${c.supplierCircuitId} (Supplier ID)`);
+                    break;
                 }
             }
         } catch (dbErr) {
-            logger.error(`❌ Failed to auto-detect circuit from database: ${dbErr.message}`);
+            logger.error(`❌ Failed to fetch circuits for validation: ${dbErr.message}`);
         }
 
-        // Fallback to legacy regex detection if smart detection fails
+        // 🛡️ CRITICAL GATE: If no circuit matches the DB, absolutely DO NOT create a ticket!
         if (!circuitId) {
-            const circuitRegex = /^(\d+)\s*\|\|\s*(.+)$/;
-            const match = subject.match(circuitRegex);
-            if (match) {
-                const refNum = match[1];
-                circuitId = match[2].trim();
-                logger.info(`🔌 Found Circuit ID via Regex: ${circuitId} (Ref: ${refNum})`);
-            }
+            logger.warn(`🚫 DROPPED EMAIL: Subject "${subject}" from ${from} does not contain any recognized Circuit ID. Ticket will NOT be created.`);
+            return null;
         }
 
         // 3. Generate ID
