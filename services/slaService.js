@@ -35,8 +35,8 @@ function ruleMatches(rule, availability) {
     const upperOk =
         rule.upperLimit === null || rule.upperOperator === null
             ? true
-            // Evaluate as: Rule.UpperLimit [operator] Availability
-            : evalOperator(rule.upperOperator, rule.upperLimit, availability);
+            // Evaluate as: Availability [operator] Rule.UpperLimit
+            : evalOperator(rule.upperOperator, availability, rule.upperLimit);
 
     const lowerOk =
         rule.lowerLimit === null || rule.lowerOperator === null
@@ -51,15 +51,6 @@ function ruleMatches(rule, availability) {
  * Convert a rule to an effective [lower, upper] interval for overlap detection.
  * Exclusive bounds are "nudged" inward by EPS so they become pseudo-inclusive,
  * allowing a simple <= comparison to detect true overlaps.
- *
- * Example:
- *   { lowerOperator: '>=', lowerLimit: 95, upperOperator: '<', upperLimit: 99 }
- *   → interval [95, 98.999999999]
- *
- *   { lowerOperator: '>=', lowerLimit: 99 }  (open upper)
- *   → interval [99, +Infinity]
- *
- * These two intervals touch at 99 — but [98.999..., 99] do NOT overlap, so no false positive.
  */
 const EPS = 1e-9;
 function ruleToInterval(rule) {
@@ -68,9 +59,10 @@ function ruleToInterval(rule) {
 
     // Adjust for strict inequalities so overlap detection works properly
     if (rule.lowerOperator === '>') lower += EPS;
-    // For upper limits evaluated as "Upper [op] Av":
-    // "Upper > Av" means Av < Upper (exclusive).
-    if (rule.upperOperator === '>' || rule.upperOperator === '<') upper -= EPS;
+    if (rule.upperOperator === '<') upper -= EPS;
+
+    // (If the user somehow enters silly boundaries like Av > 99 for upperLimit, 
+    // it functions exactly the same but flipped. We only pad appropriately.)
 
     return { lower, upper };
 }
