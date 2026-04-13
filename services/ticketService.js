@@ -38,13 +38,29 @@ const stripHtml = (str) => {
 // I will lazy-load emailService inside the function.
 
 const generateTicketId = async (ticketType = 'Client') => {
-    // Simple ID generation
-    const tickets = await TicketModel.findAllTickets();
-    const count = tickets.length;
-    if (ticketType === 'Vendor') {
-        return `#V${1000 + count + 1}`;
+    const prisma = require('../models/index');
+    
+    // To avoid Unique Constraint failures after test data deletions,
+    // we must find the absolute highest numeric ID in the DB, not just table length.
+    const tickets = await prisma.ticket.findMany({ select: { ticketId: true } });
+    
+    let maxId = 1000;
+    for (const t of tickets) {
+        // Extract numeric part from IDs like "#1051" or "#V1052"
+        const numMatch = t.ticketId.match(/\d+/);
+        if (numMatch) {
+            const num = parseInt(numMatch[0], 10);
+            if (num > maxId) {
+                maxId = num;
+            }
+        }
     }
-    return `#${1000 + count + 1}`;
+    
+    const nextNum = maxId + 1;
+    if (ticketType === 'Vendor') {
+        return `#V${nextNum}`;
+    }
+    return `#${nextNum}`;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
