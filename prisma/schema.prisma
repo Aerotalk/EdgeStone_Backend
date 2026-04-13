@@ -232,7 +232,6 @@ model Circuit {
 
   // New SLA management (full lifecycle SLAs per vendor/customer)
   slas     Sla[]
-  slaRules SLARule[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -250,34 +249,7 @@ model CircuitSLAValue {
   updatedAt DateTime @updatedAt
 }
 
-// --- Existing SLA Rule Wizard Models (used by frontend UI) ---
 
-model SLARule {
-  id               String   @id @default(uuid())
-  circuitId        String
-  circuitDisplayId String
-  targetType       String   // "vendor" | "customer"
-  targetId         String
-  targetName       String
-
-  circuit    Circuit          @relation(fields: [circuitId], references: [id])
-  conditions SLARuleCondition[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model SLARuleCondition {
-  id            String  @id @default(uuid())
-  upperLimit    Float?
-  upperOperator String?
-  lowerLimit    Float?
-  lowerOperator String?
-  compensation  Float
-
-  ruleId String
-  rule   SLARule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
-}
 
 // ============================================================
 // --- SLA Management Engine (new) ---

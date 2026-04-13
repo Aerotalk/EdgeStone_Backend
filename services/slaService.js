@@ -254,12 +254,117 @@ async function createSla(data) {
     return sla;
 }
 
+/**
+ * Update an SLA and completely replace its rules.
+ */
+async function updateSla(id, data) {
+    const { appliesTo, vendorId, customerId, rules = [] } = data;
+
+    if (!rules.length) {
+        const err = new Error('At least one SLA rule is required.');
+        err.statusCode = 400;
+        throw err;
+    }
+
+    if (appliesTo === 'VENDOR' && !vendorId) {
+        const err = new Error('vendorId is required when appliesTo is VENDOR.');
+        err.statusCode = 400;
+        throw err;
+    }
+
+    if (appliesTo === 'CUSTOMER' && !customerId) {
+        const err = new Error('customerId is required when appliesTo is CUSTOMER.');
+        err.statusCode = 400;
+        throw err;
+    }
+
+    const existingSla = await prisma.sla.findUnique({ where: { id } });
+    if (!existingSla) {
+        const err = new Error(`SLA not found: ${id}`);
+        err.statusCode = 404;
+        throw err;
+    }
+
+    // Process and validate formatted rules
+    const formattedRules = rules.map((r, idx) => {
+        const hasUpper = r.upperLimit !== null && r.upperLimit !== undefined;
+        const hasLower = r.lowerLimit !== null && r.lowerLimit !== undefined;
+
+        if (!hasUpper && !hasLower) {
+            const err = new Error(`Rule ${idx + 1}: at least one of upperLimit or lowerLimit must be set.`);
+            err.statusCode = 400;
+            throw err;
+        }
+
+        return {
+            upperLimit:    hasUpper ? Number(r.upperLimit) : null,
+            upperOperator: hasUpper ? r.upperOperator : null,
+            lowerLimit:    hasLower ? Number(r.lowerLimit) : null,
+            lowerOperator: hasLower ? r.lowerOperator : null,
+            compensationPercentage: Number(r.compensationPercentage) || 0,
+        };
+    });
+
+    const overlap = findOverlappingRules(formattedRules);
+    if (overlap) {
+        const err = new Error(`Rules ${overlap.ruleA} and ${overlap.ruleB} have overlapping availability ranges.`);
+        err.statusCode = 422;
+        throw err;
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+        // Delete all old rules
+        await tx.slaRule.deleteMany({ where: { slaId: id } });
+
+        // Update SLA and recreate rules
+        return tx.sla.update({
+            where: { id },
+            data: {
+                appliesTo,
+                vendorId:   appliesTo === 'VENDOR'   ? vendorId   : null,
+                customerId: appliesTo === 'CUSTOMER' ? customerId : null,
+                rules: { create: formattedRules },
+            },
+            include: SLA_INCLUDE,
+        });
+    });
+
+    logger.info(`🔄 SLA updated: ${updated.id} (${appliesTo})`);
+    return updated;
+}
+
 /** Return all SLAs with embedded rules. */
 async function getAllSlas() {
     return prisma.sla.findMany({
         include: SLA_INCLUDE,
         orderBy: { createdAt: 'desc' },
     });
+}
+
+/** Get all SLAs and pre-group them by circuit for the frontend UI. */
+async function getGroupedSlas() {
+    const slas = await getAllSlas();
+    
+    // Group SLA rules by circuit natively in backend
+    const groupedSlas = slas.reduce((acc, sla) => {
+        const key = sla.circuitId;
+        if (!acc[key]) {
+            acc[key] = {
+                circuitDisplayId: sla.circuit?.customerCircuitId || 'Unknown Circuit',
+                circuitId: sla.circuitId,
+                vendorSlas: [],
+                customerSlas: [],
+            };
+        }
+        if (sla.appliesTo === 'VENDOR') {
+            acc[key].vendorSlas.push(sla);
+        } else {
+            acc[key].customerSlas.push(sla);
+        }
+        return acc;
+    }, {});
+
+    return groupedSlas;
 }
 
 /** Return a single SLA with full details, rules, and audit log. */
@@ -607,7 +712,9 @@ async function deleteSlaRule(slaId, ruleId) {
 
 module.exports = {
     createSla,
+    updateSla,
     getAllSlas,
+    getGroupedSlas,
     getSlaById,
     updateSlaStatus,
     calculateSla,

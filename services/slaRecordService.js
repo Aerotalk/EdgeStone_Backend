@@ -1,7 +1,7 @@
 const prisma = require('../models/index');
 const logger = require('../utils/logger');
 
-const getAllSLARecords = async () => {
+const getAllSLARecords = async ({ search, filter, customStart, customEnd } = {}) => {
     // --- BACKFILL: Ensure EVERY ticket has a corresponding SLA record ---
     const allTickets = await prisma.ticket.findMany();
     const existingRecords = await prisma.sLARecord.findMany();
@@ -47,18 +47,89 @@ const getAllSLARecords = async () => {
         }
     });
 
-    return slaRecords.map(record => ({
-        id: record.id,
-        ticketId: record.ticket?.ticketId || 'Unknown',
-        startDate: record.startDate,
-        displayStartDate: record.startDate,
-        startTime: record.startTime,
-        closedTime: record.closedTime || '-',
-        closeDate: record.closeDate || '-',
-        status: record.status, 
-        compensation: record.compensation || '-',
-        statusReason: record.statusReason || '' 
-    }));
+    let mapped = slaRecords.map(record => {
+        let downtimeStr = '-';
+        let parsedStart = null;
+        
+        if (record.startDate && record.startTime) {
+            const startRawStr = `${record.startDate} ${record.startTime.replace(' hrs', '')}`;
+            parsedStart = new Date(startRawStr);
+            
+            if (record.closeDate && record.closedTime) {
+                const endRawStr = `${record.closeDate} ${record.closedTime.replace(' hrs', '')}`;
+                const parsedEnd = new Date(endRawStr);
+                
+                if (!isNaN(parsedStart.getTime()) && !isNaN(parsedEnd.getTime())) {
+                    const diffMins = Math.round((parsedEnd.getTime() - parsedStart.getTime()) / 60000);
+                    downtimeStr = `${diffMins} mins`;
+                }
+            }
+        }
+
+        return {
+            id: record.id,
+            ticketId: record.ticket?.ticketId || 'Unknown',
+            startDate: record.startDate,
+            displayStartDate: record.startDate, // Native format passed safely
+            startTime: record.startTime,
+            closedTime: record.closedTime || '-',
+            closeDate: record.closeDate || '-',
+            status: record.status, 
+            compensation: record.compensation || '-',
+            statusReason: record.statusReason || '',
+            downtime: downtimeStr,
+            _parsedStart: parsedStart // internal use for filtering
+        };
+    });
+
+    // Filtering logic translated from UI to Backend
+    if (search) {
+        const s = search.toLowerCase();
+        mapped = mapped.filter(r => r.ticketId.toLowerCase().includes(s));
+    }
+
+    if (filter && filter !== 'all') {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        mapped = mapped.filter(item => {
+            if (!item._parsedStart || isNaN(item._parsedStart.getTime())) return true;
+            
+            const itemDate = new Date(item._parsedStart);
+            itemDate.setHours(0, 0, 0, 0);
+
+            if (filter === 'today') {
+                return itemDate.getTime() === today.getTime();
+            }
+
+            if (filter === 'yesterday') {
+                const yesterday = new Date(today);
+                yesterday.setDate(today.getDate() - 1);
+                return itemDate.getTime() === yesterday.getTime();
+            }
+
+            if (filter === 'last7') {
+                const sevenDaysAgo = new Date(today);
+                sevenDaysAgo.setDate(today.getDate() - 7);
+                return itemDate >= sevenDaysAgo && itemDate <= today;
+            }
+
+            if (filter === 'custom' && customStart && customEnd) {
+                const start = new Date(customStart);
+                start.setHours(0, 0, 0, 0);
+                const end = new Date(customEnd);
+                end.setHours(23, 59, 59, 999);
+                return itemDate >= start && itemDate <= end;
+            }
+
+            return true;
+        });
+    }
+
+    // Cleanup internal keys
+    mapped.forEach(m => delete m._parsedStart);
+
+    return mapped;
 };
 
 const getSLARecordByTicketId = async (ticketId) => {

@@ -6,6 +6,7 @@ const authMiddleware = require('../middlewares/authMiddleware');
 router.use(authMiddleware.protect);
 
 router.get('/', slaRecordController.getAllSLARecords);
+router.get('/export', slaRecordController.exportSLARecords);
 router.post('/', slaRecordController.createSLARecord);
 router.get('/ticket/:ticketId', slaRecordController.getSLARecordByTicketId);
 router.patch('/ticket/:ticketId/closure', slaRecordController.updateSLAClosure);

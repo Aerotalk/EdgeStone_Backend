@@ -17,6 +17,19 @@ exports.listSlas = async (req, res, next) => {
 };
 
 // ─────────────────────────────────────────────
+// GET /api/sla/grouped
+// ─────────────────────────────────────────────
+exports.getGroupedSlas = async (req, res, next) => {
+    try {
+        const grouped = await slaService.getGroupedSlas();
+        res.status(200).json({ success: true, data: grouped });
+    } catch (err) {
+        logger.error('❌ getGroupedSlas error:', err);
+        next(err);
+    }
+};
+
+// ─────────────────────────────────────────────
 // GET /api/sla/:id
 // ─────────────────────────────────────────────
 exports.getSla = async (req, res, next) => {
@@ -40,6 +53,21 @@ exports.createSla = async (req, res, next) => {
         res.status(201).json({ success: true, data: sla });
     } catch (err) {
         logger.error('❌ createSla error:', err);
+        if (err.statusCode) res.status(err.statusCode);
+        next(err);
+    }
+};
+
+// ─────────────────────────────────────────────
+// PUT /api/sla/:id
+// Body: { appliesTo, vendorId?, customerId?, rules[] }
+// ─────────────────────────────────────────────
+exports.updateSla = async (req, res, next) => {
+    try {
+        const sla = await slaService.updateSla(req.params.id, req.body);
+        res.status(200).json({ success: true, data: sla });
+    } catch (err) {
+        logger.error(`❌ updateSla error [${req.params.id}]:`, err);
         if (err.statusCode) res.status(err.statusCode);
         next(err);
     }

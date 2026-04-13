@@ -3,12 +3,58 @@ const logger = require('../utils/logger');
 
 exports.getAllSLARecords = async (req, res) => {
     try {
+        const { search, filter, customStart, customEnd } = req.query;
         logger.debug('📝 Request received: getAllSLARecords');
-        const data = await slaRecordService.getAllSLARecords();
+        const data = await slaRecordService.getAllSLARecords({ search, filter, customStart, customEnd });
         res.status(200).json({ success: true, data });
     } catch (error) {
         logger.error('❌ Error fetching SLA records:', error);
         res.status(500).json({ success: false, message: 'Failed to fetch SLA records' });
+    }
+};
+
+exports.exportSLARecords = async (req, res) => {
+    try {
+        const { search, filter, customStart, customEnd } = req.query;
+        logger.debug('📝 Request received: exportSLARecords');
+        const data = await slaRecordService.getAllSLARecords({ search, filter, customStart, customEnd });
+
+        const headers = [
+            'Ticket ID',
+            'SLA Start Date',
+            'SLA Start Time',
+            'SLA Closed Time',
+            'SLA Close Date',
+            'Downtime',
+            'SLA Status',
+            'Status Reason',
+            'Compensation'
+        ];
+
+        const rows = data.map(record => [
+            record.ticketId,
+            record.displayStartDate,
+            record.startTime,
+            record.closedTime,
+            record.closeDate,
+            record.downtime,
+            record.status,
+            record.statusReason || '',
+            record.compensation
+        ]);
+
+        const csvContent = [
+            headers.join(','),
+            ...rows.map(row => row.map(cell => `"${cell || ''}"`).join(','))
+        ].join('\n');
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="SLA_Report_${new Date().toISOString().split('T')[0]}.csv"`);
+        
+        res.status(200).send(csvContent);
+    } catch (error) {
+        logger.error('❌ Error exporting SLA records:', error);
+        res.status(500).json({ success: false, message: 'Failed to export SLA records' });
     }
 };
 

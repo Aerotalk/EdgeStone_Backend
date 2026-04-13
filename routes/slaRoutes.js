@@ -12,6 +12,12 @@ router.use(protect);
 // List all SLAs (with embedded rules)
 router.get('/', slaController.listSlas);
 
+// Get SLAs grouped by circuit
+router.get('/grouped', slaController.getGroupedSlas);
+
+// Update an entire SLA and its rules
+router.put('/:id', slaController.updateSla);
+
 // Create a new SLA with an initial set of dynamic rules
 // POST body: { circuitId, appliesTo, vendorId?, customerId?, rules[] }
 router.post('/', slaController.createSla);
