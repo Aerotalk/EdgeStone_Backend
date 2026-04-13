@@ -467,23 +467,26 @@ async function calculateSla(slaId, downtimeMinutes, totalUptimeMinutes) {
 
     // ── 1. Accumulate downtime ────────────────────────────────────────
     const newTotalDowntime = sla.totalDowntimeMinutes + downtimeMinutes;
+    logger.info(`🏃‍♂️ [SLA ENGINE] Step 1: Accumulating downtime: ${sla.totalDowntimeMinutes}m (old) + ${downtimeMinutes}m (new delta) = ${newTotalDowntime}m (new total)`);
 
     // ── 2. Availability factor ────────────────────────────────────────
     const effectiveUptime = Math.max(totalUptimeMinutes - newTotalDowntime, 0);
     const availability = (effectiveUptime / totalUptimeMinutes) * 100;
+    logger.info(`📉 [SLA ENGINE] Step 2: Availability calculated dropping to ➡️ ${availability.toFixed(4)}% Out of ${totalUptimeMinutes}m`);
 
     // ── 3. Match rule ─────────────────────────────────────────────────
     const matchedRule = sla.rules.find((r) => ruleMatches(r, availability)) || null;
+    logger.info(`🔍 [SLA ENGINE] Step 3: Match Engine evaluated ➡️ ${matchedRule ? `Rule Matched! Rule ID: ${matchedRule.id}` : 'No Match Found. Safe.'}`);
 
     // ── 4. Assign compensation ────────────────────────────────────────
     const compensationPct = matchedRule ? matchedRule.compensationPercentage : 0;
+    logger.info(`💸 [SLA ENGINE] Step 4: Compensation Triggered ➡️ ${compensationPct}% payout required!`);
 
     // ── 5. Determine status ───────────────────────────────────────────
     const newStatus = compensationPct > 0 ? 'BREACHED' : 'SAFE';
 
     logger.info(
-        `📊 SLA ${slaId}: downtime=${newTotalDowntime}m, availability=${availability.toFixed(4)}%, ` +
-        `matched rule=${matchedRule?.id ?? 'none'}, compensation=${compensationPct}%, status=${newStatus}`
+        `📊 [SLA ENGINE] Final Payload - SLA ${slaId} ➡️  downtime=${newTotalDowntime}m 🧮 availability=${availability.toFixed(4)}% 🚨 status=${newStatus}`
     );
 
     // ── 6. Persist + audit ────────────────────────────────────────────

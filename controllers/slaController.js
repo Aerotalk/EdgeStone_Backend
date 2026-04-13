@@ -49,10 +49,12 @@ exports.getSla = async (req, res, next) => {
 // ─────────────────────────────────────────────
 exports.createSla = async (req, res, next) => {
     try {
-        const sla = await slaService.createSla(req.body);
-        res.status(201).json({ success: true, data: sla });
+        logger.info(`📦 [SLA CONTROLLER] Payload Rcvd ➡️ ${JSON.stringify(req.body)}`);
+        const result = await slaService.createSla(req.body);
+        logger.info(`✅ [SLA CONTROLLER] Successfully Stored SLA ➡️ ID: ${result.id}`);
+        res.status(201).json({ success: true, data: result });
     } catch (err) {
-        logger.error('❌ createSla error:', err);
+        logger.error(`❌ [SLA CONTROLLER] Creation Error: ${err.message}`, err);
         if (err.statusCode) res.status(err.statusCode);
         next(err);
     }
@@ -64,10 +66,12 @@ exports.createSla = async (req, res, next) => {
 // ─────────────────────────────────────────────
 exports.updateSla = async (req, res, next) => {
     try {
-        const sla = await slaService.updateSla(req.params.id, req.body);
-        res.status(200).json({ success: true, data: sla });
+        logger.info(`📝 [SLA CONTROLLER] Updating SLA ID: ${req.params.id} ➡️ ${JSON.stringify(req.body)}`);
+        const result = await slaService.updateSla(req.params.id, req.body);
+        logger.info(`🔄 [SLA CONTROLLER] Successfully updated SLA ➡️ ID: ${result.id}`);
+        res.status(200).json({ success: true, data: result });
     } catch (err) {
-        logger.error(`❌ updateSla error [${req.params.id}]:`, err);
+        logger.error(`❌ [SLA CONTROLLER] Update Error: ${err.message}`, err);
         if (err.statusCode) res.status(err.statusCode);
         next(err);
     }
@@ -140,10 +144,12 @@ exports.getRules = async (req, res, next) => {
 // Body: { upperLimit?, upperOperator?, lowerLimit?, lowerOperator?, compensationPercentage }
 exports.addRule = async (req, res, next) => {
     try {
-        const rule = await slaService.addRuleToSla(req.params.id, req.body);
-        res.status(201).json({ success: true, data: rule });
+        logger.info(`➕ [SLA CONTROLLER] Adding Rule to SLA ID: ${req.params.id} ➡️ Payload: ${JSON.stringify(req.body)}`);
+        const result = await slaService.addRuleToSla(req.params.id, req.body);
+        logger.info(`✔️ [SLA CONTROLLER] Added Rule ID: ${result.id}`);
+        res.status(201).json({ success: true, data: result });
     } catch (err) {
-        logger.error(`❌ addRule error [sla=${req.params.id}]:`, err);
+        logger.error(`❌ [SLA CONTROLLER] Add Rule Error: ${err.message}`, err);
         if (err.statusCode) res.status(err.statusCode);
         next(err);
     }

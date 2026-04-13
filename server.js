@@ -139,13 +139,6 @@ try {
 }
 
 try {
-    app.use('/api/sla-rules', require('./routes/slaRuleRoutes'));
-    logger.debug('📏 SLA Rule routes registered');
-} catch (error) {
-    logger.error('❌ Failed to load SLA Rule Routes:', error);
-}
-
-try {
     app.use('/api/sla-records', require('./routes/slaRecordRoutes'));
     logger.debug('📈 SLA Record routes registered');
 } catch (error) {
