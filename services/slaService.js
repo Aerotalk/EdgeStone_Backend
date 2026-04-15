@@ -89,7 +89,7 @@ function findOverlappingRules(rules) {
 
 /** Build the Prisma include block used across multiple queries. */
 const SLA_INCLUDE = {
-    circuit: { select: { id: true, customerCircuitId: true, supplierCircuitId: true, type: true } },
+    circuit: { select: { id: true, customerCircuitId: true, supplierCircuitId: true, type: true, mrc: true, supplierMrc: true } },
     vendor:  { select: { id: true, name: true, status: true } },
     customer: { select: { id: true, name: true, status: true } },
     rules: { orderBy: { lowerLimit: 'asc' } },

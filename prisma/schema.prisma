@@ -211,6 +211,7 @@ model Circuit {
   serviceDescription String? // "Service description"
   contractTermMonths Int? // "Contract term (In Months)"
   contractType       String? // "Contract Type"
+  mrc                Float   @default(1000) // Monthly Recurring Charge
 
   // --- Supplier Details ---
   supplierCircuitId          String  @unique // "Suppiler Circuit ID"
@@ -219,6 +220,7 @@ model Circuit {
   supplierContractTermMonths Int? // "Supplicr Contract term (In Months)"
   supplierContractType       String? // "Contract Type" (Supplier side)
   billingStartDate           String? // "Billing Start Date"
+  supplierMrc                Float   @default(800) // Supplier Monthly Recurring Charge
 
   // --- Relations ---
   clientId String?

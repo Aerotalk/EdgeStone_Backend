@@ -138,7 +138,9 @@ async function main() {
                 supplierContractType: row.supplierContractType,
                 billingStartDate: row.billingStartDate,
                 clientId: client.id,
-                vendorId: vendor.id
+                vendorId: vendor.id,
+                mrc: Math.floor(Math.random() * 1000) + 1000,
+                supplierMrc: Math.floor(Math.random() * 800) + 500
             },
             create: {
                 customerCircuitId: row.customerCircuitId,
@@ -153,14 +155,16 @@ async function main() {
                 supplierContractType: row.supplierContractType,
                 billingStartDate: row.billingStartDate,
                 clientId: client.id,
-                vendorId: vendor.id
+                vendorId: vendor.id,
+                mrc: Math.floor(Math.random() * 1000) + 1000,
+                supplierMrc: Math.floor(Math.random() * 800) + 500
             }
         });
         console.log(`Upserted circuit: ${circuit.customerCircuitId}`);
 
         // 4. Upsert SLA
         console.log(`Processing SLA for circuit: ${row.customerCircuitId}`);
-        await prisma.sLA.upsert({
+        await prisma.circuitSLAValue.upsert({
             where: { circuitId: circuit.id },
             update: {
                 value: String(row.sla).endsWith('%') ? String(row.sla) : String(row.sla) + '%'

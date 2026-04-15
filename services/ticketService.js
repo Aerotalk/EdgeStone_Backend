@@ -732,7 +732,8 @@ const updateTicket = async (ticketId, updates, agentName) => {
                                         { customerCircuitId: updatedTicket.circuitId },
                                         { supplierCircuitId: updatedTicket.circuitId }
                                     ]
-                                }
+                                },
+                                select: { id: true, mrc: true, supplierMrc: true }
                             });
 
                             if (circuit) {
@@ -761,9 +762,14 @@ const updateTicket = async (ticketId, updates, agentName) => {
 
                                     // 4. Write compensation result BACK to the ticket's SLARecord
                                     // This is what makes compensation visible in the Ticket dashboard sidebar
-                                    const compensationDisplay = highestCompensation > 0 
-                                        ? `${highestCompensation}% of MRC` 
-                                        : '-';
+                                    let compensationDisplay = '-';
+                                    if (highestCompensation > 0) {
+                                        // Use customer MRC or supplier MRC depending on the ticket type/SLA context.
+                                        // For now defaulting to circuit.mrc.
+                                        const baseMrc = circuit.mrc || 0;
+                                        const actualValue = (highestCompensation * baseMrc) / 100;
+                                        compensationDisplay = `$${actualValue.toFixed(2)}`;
+                                    }
                                     const slaStatusDisplay = highestStatus === 'BREACHED' ? 'Breached' : 'Safe';
 
                                     await prisma.sLARecord.update({

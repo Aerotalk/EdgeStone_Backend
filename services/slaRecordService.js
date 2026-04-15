@@ -183,7 +183,8 @@ const updateSLAClosure = async (ticketId, closeDate, closedTime) => {
                             { customerCircuitId: circuitId },
                             { supplierCircuitId: circuitId }
                         ]
-                    }
+                    },
+                    select: { id: true, mrc: true, supplierMrc: true }
                 });
 
                 if (circuit) {
@@ -205,7 +206,14 @@ const updateSLAClosure = async (ticketId, closeDate, closedTime) => {
                             }
                         }
 
-                        const compensationDisplay = highestCompensation > 0 ? `${highestCompensation}% of MRC` : '-';
+                        let compensationDisplay = '-';
+                        if (highestCompensation > 0) {
+                            // Use customer MRC or supplier MRC depending on the ticket type/SLA context. 
+                            // Currently defaulting to circuit.mrc. Could also be circuit.supplierMrc.
+                            const baseMrc = circuit.mrc || 0;
+                            const actualValue = (highestCompensation * baseMrc) / 100;
+                            compensationDisplay = `$${actualValue.toFixed(2)}`;
+                        }
                         const slaStatusDisplay = highestStatus === 'BREACHED' ? 'Breached' : 'Safe';
 
                         await prisma.sLARecord.update({
