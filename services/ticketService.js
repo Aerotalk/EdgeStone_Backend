@@ -484,19 +484,13 @@ const getTickets = async () => {
     return tickets;
 };
 
-const replyToTicket = async (ticketId, message, agentEmail, agentName) => {
+const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlContent) => {
     logger.info(`↩️ Processing reply to ticket ${ticketId} by ${agentName} (${agentEmail})`);
 
     try {
         // 1. Find Ticket
-        // Assuming ticketId is the Friendly ID (#1234) or UUID? 
-        // Frontend URL shows /Tickets/98765432... which looks like the header/circuit info?
-        // But usually API uses ID. Let's assume passed ID is the UUID or we lookup by FriendlyID.
-        // TicketModel.findById looks for UUID. 
-        // Let's try to find by FriendlyID first if it starts with #, else UUID.
         let ticket;
         if (ticketId.startsWith('#')) {
-            // We need a findByTicketId method in model, or findAll and find.
             const tickets = await TicketModel.findAllTickets();
             ticket = tickets.find(t => t.ticketId === ticketId);
         } else {
@@ -518,31 +512,34 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName) => {
             date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
             author: agentName || 'Agent',
             type: 'agent',
-            category: 'client', // Keeping in same thread
+            category: 'client',
             to: [ticket.email],
-            // cc: [],
-            // bcc: []
         });
 
         logger.info(`✅ Reply added to database for Ticket ${ticket.ticketId}`);
 
-        // 3. Send Email to Client via Zoho Mail OAuth (supports In-Reply-To/References for threading)
+        // 3. Send Email to Client via MS Graph
+        // If the frontend provided a pre-composed HTML body (with formatted signature + images),
+        // use it directly. Otherwise fall back to plain-text → HTML conversion.
         const emailService = require('./emailService');
         logger.info(`📧 Sending Agent Reply Email to: ${ticket.email} | Subject: Re: ${ticket.header}`);
+
+        const emailHtml = htmlContent
+            ? htmlContent   // ← Rich HTML: bold, italic, images, font colors all preserved
+            : `<div style="font-family: Arial, sans-serif;">
+                <p>${message.replace(/\n/g, '<br>')}</p>
+                <br/>
+                <hr/>
+                <p style="font-size: 12px; color: #666;">${agentName}<br/>EdgeStone Support</p>
+               </div>`;
+
         const sentResult = await emailService.sendAgentReplyEmail({
             to: ticket.email,
             subject: `Re: ${ticket.header} [${ticket.ticketId}]`,
-            html: `
-                <div style="font-family: Arial, sans-serif;">
-                    <p>${message.replace(/\n/g, '<br>')}</p>
-                    <br/>
-                    <hr/>
-                    <p style="font-size: 12px; color: #666;">${agentName}<br/>EdgeStone Support</p>
-                </div>
-            `,
-            text: message,
-            inReplyTo: ticket.messageId,   // Threads reply into client's original email
-            references: ticket.messageId   // Chains the full conversation thread
+            html: emailHtml,
+            text: message,   // plain-text fallback for clients that don't render HTML
+            inReplyTo: ticket.messageId,
+            references: ticket.messageId
         });
 
         logger.info(`📤 Reply email sent to ${ticket.email}`);
