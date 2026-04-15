@@ -319,3 +319,21 @@ model SlaAuditLog {
 
   timestamp DateTime @default(now())
 }
+
+// ============================================================
+// --- Mail Signature Management ---
+// ============================================================
+
+// Per-agent email signature with HTML content + embedded images
+model Signature {
+  id      String @id @default(uuid())
+  agentId String // UUID of the Agent who owns this signature
+  name    String // Display name e.g. "Priyanshu Routh CTO AeroTalk"
+  content String @db.Text // HTML content (may include <img> tags with base64 or hosted URLs)
+
+  // Default assignment: "new" | "reply" | "both" | null
+  defaultFor String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

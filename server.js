@@ -152,6 +152,12 @@ try {
     logger.error('❌ Failed to load SLA Management Routes:', error);
 }
 
+try {
+    app.use('/api/signatures', require('./routes/signatureRoutes'));
+    logger.debug('✍️  Signature routes registered');
+} catch (error) {
+    logger.error('❌ Failed to load Signature Routes:', error);
+}
 
 // Error Handler
 app.use(errorHandler);
