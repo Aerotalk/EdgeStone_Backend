@@ -74,12 +74,36 @@ const sendViaGraph = async ({ to, cc, bcc, subject, html, text, inReplyTo, refer
     const ccArray = Array.isArray(cc) ? cc : (cc ? [cc] : []);
     const bccArray = Array.isArray(bcc) ? bcc : (bcc ? [bcc] : []);
 
+    // Extract Base64 images and convert them to inline CID attachments for MS Graph
+    let finalHtml = html;
+    let attachments = [];
+    if (finalHtml) {
+        let imgCount = 0;
+        finalHtml = finalHtml.replace(/(["'])(data:(image\/[^;]+);base64,([^"']+))\1/gi, (match, quote, fullDataUrl, mimeType, base64Data) => {
+            imgCount++;
+            const contentId = `sig-img-${Date.now()}-${imgCount}`;
+            const extension = mimeType.split('/')[1] || 'png';
+            const filename = `signature-image-${imgCount}.${extension}`;
+
+            attachments.push({
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                "name": filename,
+                "contentType": mimeType,
+                "contentBytes": base64Data,
+                "isInline": true,
+                "contentId": contentId
+            });
+
+            return `${quote}cid:${contentId}${quote}`;
+        });
+    }
+
     // Build the Graph API message body
     const message = {
         subject,
         body: {
-            contentType: html ? 'HTML' : 'Text',
-            content: html || text || '(No content)',
+            contentType: finalHtml ? 'HTML' : 'Text',
+            content: finalHtml || text || '(No content)',
         },
         toRecipients: toArray.map(address => ({ emailAddress: { address } })),
         ccRecipients: ccArray.map(address => ({ emailAddress: { address } })),
@@ -91,6 +115,11 @@ const sendViaGraph = async ({ to, cc, bcc, subject, html, text, inReplyTo, refer
             }
         },
     };
+
+    if (attachments.length > 0) {
+        message.hasAttachments = true;
+        message.attachments = attachments;
+    }
 
     // NOTE: Microsoft Graph API only allows custom X- prefixed headers in internetMessageHeaders.
     // Standard RFC 5322 headers like 'In-Reply-To' and 'References' are BLOCKED and will throw:
