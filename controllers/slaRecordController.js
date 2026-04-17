@@ -4,11 +4,11 @@ const logger = require('../utils/logger');
 exports.getAllSLARecords = async (req, res) => {
     try {
         const { search, filter, customStart, customEnd } = req.query;
-        logger.debug('📝 Request received: getAllSLARecords');
+        logger.debug('🐞 ⏱️ [SLA] 📝 Request received: getAllSLARecords');
         const data = await slaRecordService.getAllSLARecords({ search, filter, customStart, customEnd });
         res.status(200).json({ success: true, data });
     } catch (error) {
-        logger.error('❌ Error fetching SLA records:', error);
+        logger.error('🚨 ⏱️ [SLA] ❌ Error fetching SLA records:', error);
         res.status(500).json({ success: false, message: 'Failed to fetch SLA records' });
     }
 };
@@ -16,7 +16,7 @@ exports.getAllSLARecords = async (req, res) => {
 exports.exportSLARecords = async (req, res) => {
     try {
         const { search, filter, customStart, customEnd } = req.query;
-        logger.debug('📝 Request received: exportSLARecords');
+        logger.debug('🐞 ⏱️ [SLA] 📝 Request received: exportSLARecords');
         const data = await slaRecordService.getAllSLARecords({ search, filter, customStart, customEnd });
 
         const headers = [
@@ -53,7 +53,7 @@ exports.exportSLARecords = async (req, res) => {
         
         res.status(200).send(csvContent);
     } catch (error) {
-        logger.error('❌ Error exporting SLA records:', error);
+        logger.error('🚨 ⏱️ [SLA] ❌ Error exporting SLA records:', error);
         res.status(500).json({ success: false, message: 'Failed to export SLA records' });
     }
 };
@@ -69,7 +69,7 @@ exports.getSLARecordByTicketId = async (req, res) => {
 
         res.status(200).json({ success: true, data: record });
     } catch (error) {
-        logger.error('❌ Error fetching SLA record by ticket:', error);
+        logger.error('🚨 ⏱️ [SLA] ❌ Error fetching SLA record by ticket:', error);
         res.status(500).json({ success: false, message: 'Failed to fetch SLA record' });
     }
 };
@@ -81,7 +81,7 @@ exports.createSLARecord = async (req, res) => {
 
         res.status(201).json({ success: true, data: newRecord });
     } catch (error) {
-        logger.error('❌ Error creating SLA record:', error);
+        logger.error('🚨 ⏱️ [SLA] ❌ Error creating SLA record:', error);
         res.status(500).json({ success: false, message: 'Failed to create SLA record' });
     }
 };
@@ -95,7 +95,7 @@ exports.updateSLAClosure = async (req, res) => {
 
         res.status(200).json({ success: true, data: updatedRecord });
     } catch (error) {
-        logger.error('❌ Error updating SLA closure:', error);
+        logger.error('🚨 ⏱️ [SLA] ❌ Error updating SLA closure:', error);
         if (error.message === 'SLA record not found') {
             return res.status(404).json({ success: false, message: error.message });
         }
@@ -117,13 +117,13 @@ exports.updateSLARecordStatus = async (req, res) => {
         }
 
         const agentName = req.user ? req.user.name : 'Agent';
-        logger.info(`🔄 ${agentName} updating SLA record ${id} status to ${status}. Reason: ${reason}`);
+        logger.info(`⏱️ [SLA] 🔄 ${agentName} updating SLA record ${id} status to ${status}. Reason: ${reason}`);
         
         const updatedRecord = await slaRecordService.updateSLARecordStatus(id, status, reason, agentName);
 
         res.status(200).json({ success: true, message: 'SLA record updated successfully', data: updatedRecord });
     } catch (error) {
-        logger.error('❌ Error updating SLA record:', error);
+        logger.error('🚨 ⏱️ [SLA] ❌ Error updating SLA record:', error);
         if (error.message === 'SLA record not found') {
             return res.status(404).json({ success: false, message: error.message });
         }

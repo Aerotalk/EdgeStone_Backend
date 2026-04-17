@@ -8,9 +8,9 @@ const {
 } = require('../controllers/vendorController');
 const { protect, authorize } = require('../middlewares/authMiddleware');
 
-router.get('/', protect, authorize('Super Admin', 'Agent'), getAllVendors);
-router.get('/:id', protect, authorize('Super Admin', 'Agent'), getVendorById);
-router.post('/', protect, authorize('Super Admin', 'Agent'), createVendor);
-router.put('/:id', protect, authorize('Super Admin', 'Agent'), updateVendor);
+router.get('/', protect, authorize('Manager', 'Support crew'), getAllVendors);
+router.get('/:id', protect, authorize('Manager', 'Support crew'), getVendorById);
+router.post('/', protect, authorize('Manager'), createVendor);
+router.put('/:id', protect, authorize('Manager'), updateVendor);
 
 module.exports = router;

@@ -31,7 +31,7 @@ const getAllSLARecords = async ({ search, filter, customStart, customEnd } = {})
     }
 
     if (createdAny) {
-        logger.info('✨ Retroactively provisioned SLA records for older tickets missing them.');
+        logger.info('⏱️ [SLA] ✨ Retroactively provisioned SLA records for older tickets missing them.');
     }
 
     const slaRecords = await prisma.sLARecord.findMany({
@@ -173,7 +173,7 @@ const updateSLAClosure = async (ticketId, closeDate, closedTime) => {
 
         if (!isNaN(sTime.getTime()) && !isNaN(eTime.getTime())) {
             const diffMins = Math.round((eTime.getTime() - sTime.getTime()) / 60000);
-            logger.info(`⏱️ [SLA Closure] Downtime for Ticket ${existingRecord.ticket?.ticketId}: ${diffMins} mins`);
+            logger.info(`⏱️ [SLA] ⏱️ [SLA Closure] Downtime for Ticket ${existingRecord.ticket?.ticketId}: ${diffMins} mins`);
 
             const circuitId = existingRecord.ticket?.circuitId;
             if (circuitId && diffMins > 0) {
@@ -226,19 +226,19 @@ const updateSLAClosure = async (ticketId, closeDate, closedTime) => {
                                     : 'Circuit availability within SLA bounds'
                             }
                         });
-                        logger.info(`💾 [SLA Closure] SLARecord updated — compensation: "${compensationDisplay}", status: "${slaStatusDisplay}"`);
+                        logger.info(`⏱️ [SLA] 💾 [SLA Closure] SLARecord updated — compensation: "${compensationDisplay}", status: "${slaStatusDisplay}"`);
                     } else {
-                        logger.warn(`⚠️ [SLA Closure] Circuit ${circuit.id} has no active SLAs configured.`);
+                        logger.warn(`⚠️ ⏱️ [SLA] ⚠️ [SLA Closure] Circuit ${circuit.id} has no active SLAs configured.`);
                     }
                 } else {
-                    logger.warn(`⚠️ [SLA Closure] No circuit found for circuitId: ${circuitId}`);
+                    logger.warn(`⚠️ ⏱️ [SLA] ⚠️ [SLA Closure] No circuit found for circuitId: ${circuitId}`);
                 }
             }
         } else {
-            logger.warn(`⚠️ [SLA Closure] Could not parse start/end times for downtime calculation. start="${startStr}" end="${endStr}"`);
+            logger.warn(`⚠️ ⏱️ [SLA] ⚠️ [SLA Closure] Could not parse start/end times for downtime calculation. start="${startStr}" end="${endStr}"`);
         }
     } catch (err) {
-        logger.error(`❌ [SLA Closure] Auto-compensation engine failed: ${err.message}`);
+        logger.error(`🚨 ⏱️ [SLA] ❌ [SLA Closure] Auto-compensation engine failed: ${err.message}`);
     }
     // ─────────────────────────────────────────────────────────────────────────
 

@@ -7,7 +7,7 @@ const { getISTString } = require('../utils/timeUtils');
 
 const getTickets = async (req, res, next) => {
     try {
-        logger.debug('📝 Request received: getTickets');
+        logger.debug('🐞 🎟️ [TICKET] 📝 Request received: getTickets');
         const tickets = await ticketService.getTickets();
         res.json(tickets);
     } catch (error) {
@@ -17,7 +17,7 @@ const getTickets = async (req, res, next) => {
 
 const createTicket = async (req, res, next) => {
     try {
-        logger.debug('📝 Request received: createTicket (Manual)');
+        logger.debug('🐞 🎟️ [TICKET] 📝 Request received: createTicket (Manual)');
         // Logic
         res.json({ message: 'Create Ticket' });
     } catch (error) {
@@ -30,8 +30,8 @@ const updateTicket = async (req, res, next) => {
         const { id } = req.params;
         const { circuitId, priority, status } = req.body;
 
-        logger.debug(`📝 Request received: updateTicket for ticket ${id}`);
-        logger.debug(`Updates: circuitId=${circuitId}, priority=${priority}, status=${status}`);
+        logger.debug(`🐞 🎟️ [TICKET] 📝 Request received: updateTicket for ticket ${id}`);
+        logger.debug(`🐞 🎟️ [TICKET] Updates: circuitId=${circuitId}, priority=${priority}, status=${status}`);
 
         const agentName = req.user ? req.user.name : 'Agent';
         const agentEmail = req.user ? req.user.email : 'support@edgestone.in';
@@ -42,10 +42,10 @@ const updateTicket = async (req, res, next) => {
             agentName
         );
 
-        logger.info(`✅ Ticket ${id} updated successfully`);
+        logger.info(`🎟️ [TICKET] ✅ Ticket ${id} updated successfully`);
         res.json({ message: 'Ticket updated successfully', ticket: updatedTicket });
     } catch (error) {
-        logger.error(`❌ Error updating ticket: ${error.message}`);
+        logger.error(`🚨 🎟️ [TICKET] ❌ Error updating ticket: ${error.message}`);
         next(error);
     }
 };
@@ -59,7 +59,7 @@ const replyTicket = async (req, res, next) => {
         const agentEmail = req.user ? req.user.email : 'support@edgestone.in';
 
         // Detailed Reply Logging
-        logger.info(`
+        logger.info(`🎟️ [TICKET] 
 📨 OUTGOING REPLY LOG 📨
 --------------------------------------------------
 🕒 Timestamp (IST) : ${getISTString()}
@@ -70,7 +70,7 @@ const replyTicket = async (req, res, next) => {
 --------------------------------------------------
 `);
 
-        logger.info(`🗣️ Agent ${agentName} replying to ticket ${id}`);
+        logger.info(`🎟️ [TICKET] 🗣️ Agent ${agentName} replying to ticket ${id}`);
 
         const reply = await ticketService.replyToTicket(id, message, agentEmail, agentName, htmlContent);
         res.status(201).json({ message: 'Reply sent successfully', reply });
@@ -86,7 +86,7 @@ const replyVendorTicket = async (req, res, next) => {
         const agentName = req.user ? req.user.name : 'Agent';
         const agentEmail = req.user ? req.user.email : 'support@edgestone.in';
 
-        logger.info(`📨 VENDOR REPLY | Ticket: ${id} | Agent: ${agentName}`);
+        logger.info(`🎟️ [TICKET] 📨 VENDOR REPLY | Ticket: ${id} | Agent: ${agentName}`);
 
         const reply = await vendorTicketingService.replyToVendor(id, emailData, agentEmail, agentName);
         res.status(201).json({ message: 'Vendor reply sent successfully', reply });

@@ -17,7 +17,7 @@ const OUTLOOK_FROM_EMAIL = emailConfig.smtp.auth.user || process.env.MAIL_USER;
 
 // Pre-flight check
 if (!OUTLOOK_FROM_EMAIL || !emailConfig.smtp.auth.pass) {
-    logger.error('🚨 outlookMailService: Missing MAIL_USER or MAIL_PASSWORD in environment. Agent replies will fail.');
+    logger.error('🚨 📧 [OUTLOOK] 🚨 outlookMailService: Missing MAIL_USER or MAIL_PASSWORD in environment. Agent replies will fail.');
 }
 
 // Create Nodemailer Transporter
@@ -32,7 +32,7 @@ const sendOutlookReplyEmail = async ({ to, subject, html, text, inReplyTo, refer
     }
 
     const safeSubject = subject.replace(/[\r\n\t]/g, ' ').trim();
-    logger.info(`📧 outlookMailService: Preparing threaded agent reply | to: ${to} | subject: "${safeSubject}"`);
+    logger.info(`📧 [OUTLOOK] 📧 outlookMailService: Preparing threaded agent reply | to: ${to} | subject: "${safeSubject}"`);
 
     // We build standard RFC 2822 threading headers
     const mailOptions = {
@@ -46,7 +46,7 @@ const sendOutlookReplyEmail = async ({ to, subject, html, text, inReplyTo, refer
     // If we have threading information, attach it
     if (inReplyTo) {
         mailOptions.inReplyTo = inReplyTo;
-        logger.info(`🧵 outlookMailService: Adding In-Reply-To header: ${inReplyTo}`);
+        logger.info(`📧 [OUTLOOK] 🧵 outlookMailService: Adding In-Reply-To header: ${inReplyTo}`);
     }
     
     if (references) {
@@ -58,10 +58,10 @@ const sendOutlookReplyEmail = async ({ to, subject, html, text, inReplyTo, refer
 
     try {
         const info = await transporter.sendMail(mailOptions);
-        logger.info(`✅ outlookMailService: Reply sent successfully | messageId: ${info.messageId} | to: ${to}`);
+        logger.info(`📧 [OUTLOOK] ✅ outlookMailService: Reply sent successfully | messageId: ${info.messageId} | to: ${to}`);
         return info;
     } catch (error) {
-        logger.error(`❌ outlookMailService: Failed to send reply: ${error.message}`);
+        logger.error(`🚨 📧 [OUTLOOK] ❌ outlookMailService: Failed to send reply: ${error.message}`);
         throw error;
     }
 };
@@ -76,7 +76,7 @@ const sendOutlookEmail = async ({ to, subject, html, text, inReplyTo, references
     }
 
     const safeSubject = subject.replace(/[\r\n\t]/g, ' ').trim();
-    logger.info(`📧 outlookMailService: Preparing generic system email | to: ${to} | subject: "${safeSubject}"`);
+    logger.info(`📧 [OUTLOOK] 📧 outlookMailService: Preparing generic system email | to: ${to} | subject: "${safeSubject}"`);
 
     const mailOptions = {
         from: `EdgeStone Support <${OUTLOOK_FROM_EMAIL}>`,
@@ -98,10 +98,10 @@ const sendOutlookEmail = async ({ to, subject, html, text, inReplyTo, references
 
     try {
         const info = await transporter.sendMail(mailOptions);
-        logger.info(`✅ outlookMailService: System email sent successfully | messageId: ${info.messageId} | to: ${to}`);
+        logger.info(`📧 [OUTLOOK] ✅ outlookMailService: System email sent successfully | messageId: ${info.messageId} | to: ${to}`);
         return info;
     } catch (error) {
-        logger.error(`❌ outlookMailService: Failed to send system email: ${error.message}`);
+        logger.error(`🚨 📧 [OUTLOOK] ❌ outlookMailService: Failed to send system email: ${error.message}`);
         throw error;
     }
 };

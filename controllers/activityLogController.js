@@ -17,7 +17,7 @@ const getActivityLogs = async (req, res, next) => {
         const userId = req.user ? req.user.id : 'Unauthenticated';
         const userName = req.user ? req.user.name : 'Unknown';
 
-        logger.info(`
+        logger.info(`📜 [ACTIVITY] 
 🚨 ENTRY LOG: Ticket Reply View Opened 🚨
 --------------------------------------------------
 🕒 Timestamp (IST) : ${getISTString()}
@@ -29,7 +29,7 @@ const getActivityLogs = async (req, res, next) => {
 --------------------------------------------------
 `);
 
-        logger.debug(`📋 Fetching activity logs for ticket ${ticketId}`);
+        logger.debug(`🐞 📜 [ACTIVITY] 📋 Fetching activity logs for ticket ${ticketId}`);
 
         const logs = await activityLogService.getActivityLogs(ticketId);
 

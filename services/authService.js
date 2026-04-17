@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
 
 const login = async (email, password) => {
-    logger.debug(`🔐 Attempting login for email: ${email}`);
+    logger.info(`🔐 [AUTH] ✨ [LOGIN] 🚀 Initiating deep login sequence for email: 📧 ${email}`);
 
     let user = await UserModel.findUserByEmail(email);
     let isAgent = false;
@@ -15,21 +15,21 @@ const login = async (email, password) => {
         if (agent) {
             user = agent;
             isAgent = true;
-            // Ensure agent has a role property for token consistency
-            if (!user.role) user.role = 'Agent';
+            // Use the agent's database role or fallback
+            if (!user.role) user.role = agent.role || (agent.isSuperAdmin ? 'Super admin' : 'Support crew');
         } else {
-            logger.warn(`🛑 Login failed: User/Agent not found for email: ${email}`);
+            logger.warn(`⚠️ 🔐 [AUTH] 🛑 [LOGIN] ❌ Login entirely failed: User/Agent totally absent for email: 📧 ${email}`);
             throw new Error('Invalid credentials');
         }
     }
 
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
-        logger.warn(`🛑 Login failed: Invalid password for user: ${email}`);
+        logger.warn(`⚠️ 🔐 [AUTH] 🛑 [LOGIN] ❌ Login utterly failed: Incorrect password hash mismatch for user: 📧 ${email}`);
         throw new Error('Invalid credentials');
     }
 
-    logger.info(`✅ Login successful for user: ${email} (${user.role})`);
+    logger.info(`🔐 [AUTH] ✅ [LOGIN] 🌟 Spectacular success! Login cleared for user: 📧 ${email} (Resolved Role: 🛡️ ${user.role})`);
 
     const token = jwt.sign(
         { id: user.id, role: user.role, isAgent },

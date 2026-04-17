@@ -3,7 +3,7 @@ const logger = require('../utils/logger');
 
 const createAgent = async (req, res, next) => {
     try {
-        logger.debug('📝 Request received: Create Agent');
+        logger.debug('🐞 🕵️ [AGENT] 📝 Request received: Create Agent');
         const agent = await agentService.createAgent(req.body);
         res.status(201).json(agent);
     } catch (error) {
@@ -16,7 +16,7 @@ const createAgent = async (req, res, next) => {
 
 const getAgents = async (req, res, next) => {
     try {
-        logger.debug('📝 Request received: Get All Agents');
+        logger.debug('🐞 🕵️ [AGENT] 📝 Request received: Get All Agents');
         const agents = await agentService.getAgents(req.query);
         res.json(agents);
     } catch (error) {
@@ -27,7 +27,7 @@ const getAgents = async (req, res, next) => {
 const getAgentById = async (req, res, next) => {
     try {
         const { id } = req.params;
-        logger.debug(`📝 Request received: Get Agent by ID ${id}`);
+        logger.debug(`🐞 🕵️ [AGENT] 📝 Request received: Get Agent by ID ${id}`);
         const agent = await agentService.getAgentById(id);
         res.json(agent);
     } catch (error) {
@@ -41,7 +41,7 @@ const getAgentById = async (req, res, next) => {
 const updateAgent = async (req, res, next) => {
     try {
         const { id } = req.params;
-        logger.debug(`📝 Request received: Update Agent ${id}`);
+        logger.debug(`🐞 🕵️ [AGENT] 📝 Request received: Update Agent ${id}`);
         const agent = await agentService.updateAgent(id, req.body);
         res.json(agent);
     } catch (error) {

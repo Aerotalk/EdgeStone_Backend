@@ -37,15 +37,15 @@ const serialize = (circuit) => ({
 // ── GET /api/circuits ─────────────────────────────────────────────────────────
 const getCircuits = async (req, res, next) => {
     try {
-        logger.debug('📝 Request received: getCircuits');
+        logger.debug('🐞 🔌 [CIRCUIT] 📝 Request received: getCircuits');
         const circuits = await prisma.circuit.findMany({
             include: CIRCUIT_INCLUDE,
             orderBy: { createdAt: 'desc' },
         });
-        logger.info(`✅ Successfully fetched ${circuits.length} circuits`);
+        logger.info(`🔌 [CIRCUIT] ✅ Successfully fetched ${circuits.length} circuits`);
         res.status(200).json({ success: true, data: circuits.map(serialize) });
     } catch (error) {
-        logger.error(`❌ Error fetching circuits: ${error.message}`, { stack: error.stack });
+        logger.error(`🚨 🔌 [CIRCUIT] ❌ Error fetching circuits: ${error.message}`, { stack: error.stack });
         next(error);
     }
 };
@@ -53,7 +53,7 @@ const getCircuits = async (req, res, next) => {
 // ── POST /api/circuits ────────────────────────────────────────────────────────
 const createCircuit = async (req, res, next) => {
     try {
-        logger.debug('📝 Request received: createCircuit');
+        logger.debug('🐞 🔌 [CIRCUIT] 📝 Request received: createCircuit');
 
         const {
             customerCircuitId,
@@ -116,10 +116,10 @@ const createCircuit = async (req, res, next) => {
             include: CIRCUIT_INCLUDE,
         });
 
-        logger.info(`✅ Circuit created: ${circuit.customerCircuitId} (id: ${circuit.id})`);
+        logger.info(`🔌 [CIRCUIT] ✅ Circuit created: ${circuit.customerCircuitId} (id: ${circuit.id})`);
         res.status(201).json({ success: true, data: serialize(circuit) });
     } catch (error) {
-        logger.error(`❌ Error creating circuit: ${error.message}`, { stack: error.stack });
+        logger.error(`🚨 🔌 [CIRCUIT] ❌ Error creating circuit: ${error.message}`, { stack: error.stack });
         next(error);
     }
 };
@@ -128,7 +128,7 @@ const createCircuit = async (req, res, next) => {
 const updateCircuit = async (req, res, next) => {
     try {
         const { id } = req.params;
-        logger.debug(`📝 Request received: updateCircuit (id: ${id})`);
+        logger.debug(`🐞 🔌 [CIRCUIT] 📝 Request received: updateCircuit (id: ${id})`);
 
         const existing = await prisma.circuit.findUnique({ where: { id } });
         if (!existing) {
@@ -190,10 +190,10 @@ const updateCircuit = async (req, res, next) => {
             include: CIRCUIT_INCLUDE,
         });
 
-        logger.info(`✅ Circuit updated: ${updated.customerCircuitId} (id: ${updated.id})`);
+        logger.info(`🔌 [CIRCUIT] ✅ Circuit updated: ${updated.customerCircuitId} (id: ${updated.id})`);
         res.status(200).json({ success: true, data: serialize(updated) });
     } catch (error) {
-        logger.error(`❌ Error updating circuit: ${error.message}`, { stack: error.stack });
+        logger.error(`🚨 🔌 [CIRCUIT] ❌ Error updating circuit: ${error.message}`, { stack: error.stack });
         next(error);
     }
 };

@@ -22,7 +22,7 @@ const getSignatures = async (req, res, next) => {
 
         res.json(signatures);
     } catch (error) {
-        logger.error(`❌ getSignatures error: ${error.message}`);
+        logger.error(`🚨 ✍️ [SIGNATURE] ❌ getSignatures error: ${error.message}`);
         next(error);
     }
 };
@@ -53,10 +53,10 @@ const createSignature = async (req, res, next) => {
             },
         });
 
-        logger.info(`✅ Signature created: ${signature.id} for agent ${agentId}`);
+        logger.info(`✍️ [SIGNATURE] ✅ Signature created: ${signature.id} for agent ${agentId}`);
         res.status(201).json(signature);
     } catch (error) {
-        logger.error(`❌ createSignature error: ${error.message}`);
+        logger.error(`🚨 ✍️ [SIGNATURE] ❌ createSignature error: ${error.message}`);
         next(error);
     }
 };
@@ -89,10 +89,10 @@ const updateSignature = async (req, res, next) => {
             },
         });
 
-        logger.info(`✅ Signature updated: ${id}`);
+        logger.info(`✍️ [SIGNATURE] ✅ Signature updated: ${id}`);
         res.json(updated);
     } catch (error) {
-        logger.error(`❌ updateSignature error: ${error.message}`);
+        logger.error(`🚨 ✍️ [SIGNATURE] ❌ updateSignature error: ${error.message}`);
         next(error);
     }
 };
@@ -110,10 +110,10 @@ const deleteSignature = async (req, res, next) => {
         }
 
         await prisma.signature.delete({ where: { id } });
-        logger.info(`🗑 Signature deleted: ${id}`);
+        logger.info(`✍️ [SIGNATURE] 🗑 Signature deleted: ${id}`);
         res.json({ success: true, id });
     } catch (error) {
-        logger.error(`❌ deleteSignature error: ${error.message}`);
+        logger.error(`🚨 ✍️ [SIGNATURE] ❌ deleteSignature error: ${error.message}`);
         next(error);
     }
 };
@@ -142,10 +142,10 @@ const setDefault = async (req, res, next) => {
             data: { defaultFor: defaultFor || null },
         });
 
-        logger.info(`✅ Default set: signature ${id} → defaultFor=${defaultFor}`);
+        logger.info(`✍️ [SIGNATURE] ✅ Default set: signature ${id} → defaultFor=${defaultFor}`);
         res.json(updated);
     } catch (error) {
-        logger.error(`❌ setDefault error: ${error.message}`);
+        logger.error(`🚨 ✍️ [SIGNATURE] ❌ setDefault error: ${error.message}`);
         next(error);
     }
 };
@@ -167,7 +167,7 @@ const uploadImage = async (req, res, next) => {
         const mimeType = req.file.mimetype;
         const dataUrl = `data:${mimeType};base64,${base64}`;
 
-        logger.info(`🖼 Signature image uploaded: ${req.file.originalname} (${req.file.size} bytes)`);
+        logger.info(`✍️ [SIGNATURE] 🖼 Signature image uploaded: ${req.file.originalname} (${req.file.size} bytes)`);
 
         res.json({
             url: dataUrl,
@@ -176,7 +176,7 @@ const uploadImage = async (req, res, next) => {
             size: req.file.size,
         });
     } catch (error) {
-        logger.error(`❌ uploadImage error: ${error.message}`);
+        logger.error(`🚨 ✍️ [SIGNATURE] ❌ uploadImage error: ${error.message}`);
         next(error);
     }
 };

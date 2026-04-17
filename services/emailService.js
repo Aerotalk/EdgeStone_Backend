@@ -52,7 +52,7 @@ const getGraphAccessToken = async () => {
     // Expire the cache 5 minutes before the actual token expiry
     tokenExpiresAt = Date.now() + ((result.expires_in - 300) * 1000);
 
-    logger.info('🔑 MS Graph Access Token refreshed successfully.');
+    logger.info('📧 [EMAIL] 🔑 MS Graph Access Token refreshed successfully.');
     return graphAccessToken;
 };
 
@@ -130,7 +130,7 @@ const sendViaGraph = async ({ to, cc, bcc, subject, html, text, inReplyTo, refer
         message.internetMessageHeaders = [];
         if (inReplyTo) {
             message.internetMessageHeaders.push({ name: 'X-Ticket-In-Reply-To', value: inReplyTo });
-            logger.info(`🧵 sendViaGraph: Storing In-Reply-To as X-Ticket-In-Reply-To: ${inReplyTo}`);
+            logger.info(`📧 [EMAIL] 🧵 sendViaGraph: Storing In-Reply-To as X-Ticket-In-Reply-To: ${inReplyTo}`);
         }
         if (references) {
             message.internetMessageHeaders.push({ name: 'X-Ticket-References', value: references });
@@ -152,7 +152,7 @@ const sendViaGraph = async ({ to, cc, bcc, subject, html, text, inReplyTo, refer
 
     if (response.status === 202) {
         // 202 Accepted is the expected success response for /sendMail
-        logger.info(`✅ sendViaGraph: Email sent successfully via Graph API | to: ${to} | subject: "${subject}"`);
+        logger.info(`📧 [EMAIL] ✅ sendViaGraph: Email sent successfully via Graph API | to: ${to} | subject: "${subject}"`);
         // Return a mock info object similar to nodemailer for compatibility
         return { messageId: null, accepted: [to], response: '202 Accepted' };
     }
@@ -180,13 +180,13 @@ const sendEmail = async ({ to, cc, bcc, subject, html, text, inReplyTo, referenc
         throw new Error('sendEmail: subject cannot be empty');
     }
     if (!html && !text) {
-        logger.warn('⚠️ sendEmail called with no html or text body — sending anyway');
+        logger.warn('⚠️ 📧 [EMAIL] ⚠️ sendEmail called with no html or text body — sending anyway');
         text = '(No content)';
     }
 
     // Sanitise subject — strip control characters that can cause header injection
     const safeSubject = subject.replace(/[\r\n\t]/g, ' ').trim();
-    logger.info(`📧 sendEmail: Routing auto-reply via Graph API | to: ${Array.isArray(to)? to.join(', ') : to} | subject: "${safeSubject}"`);
+    logger.info(`📧 [EMAIL] 📧 sendEmail: Routing auto-reply via Graph API | to: ${Array.isArray(to)? to.join(', ') : to} | subject: "${safeSubject}"`);
 
     return sendViaGraph({ to, cc, bcc, subject: safeSubject, html, text, inReplyTo, references });
 };
@@ -204,7 +204,7 @@ const sendAgentReplyEmail = async ({ to, cc, bcc, subject, html, text, inReplyTo
     }
 
     const safeSubject = subject.replace(/[\r\n\t]/g, ' ').trim();
-    logger.info(`📧 sendAgentReplyEmail: Routing agent reply via Graph API | to: ${Array.isArray(to)? to.join(', ') : to} | subject: "${safeSubject}"`);
+    logger.info(`📧 [EMAIL] 📧 sendAgentReplyEmail: Routing agent reply via Graph API | to: ${Array.isArray(to)? to.join(', ') : to} | subject: "${safeSubject}"`);
 
     return sendViaGraph({ to, cc, bcc, subject: safeSubject, html, text, inReplyTo, references });
 };
@@ -226,12 +226,12 @@ const markEmailAsRead = async (messageId, accessToken) => {
         });
         if (!res.ok) {
             const err = await res.text();
-            logger.error(`❌ Failed to mark message ${messageId} as read: ${err}`);
+            logger.error(`🚨 📧 [EMAIL] ❌ Failed to mark message ${messageId} as read: ${err}`);
         } else {
-            logger.info(`✅ Marked message ${messageId} as read`);
+            logger.info(`📧 [EMAIL] ✅ Marked message ${messageId} as read`);
         }
     } catch (e) {
-        logger.error(`❌ Error marking message as read: ${e.message}`);
+        logger.error(`🚨 📧 [EMAIL] ❌ Error marking message as read: ${e.message}`);
     }
 };
 
@@ -245,11 +245,11 @@ const fetchNewGraphEmails = async () => {
     try {
         accessToken = await getGraphAccessToken();
     } catch (err) {
-        logger.error(`❌ MS Graph Token Error: ${err.message}`);
+        logger.error(`🚨 📧 [EMAIL] ❌ MS Graph Token Error: ${err.message}`);
         return;
     }
 
-    logger.debug(`🔍 Polling Microsoft Graph INBOX for UNREAD messages in ${userEmail}...`);
+    logger.debug(`🐞 📧 [EMAIL] 🔍 Polling Microsoft Graph INBOX for UNREAD messages in ${userEmail}...`);
     // Use /mailFolders/inbox/messages — NOT /messages (which queries all folders incl. Sent Items).
     // Without this, auto-replies in Sent Items get re-picked and create duplicate ticket entries.
     const messagesUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/mailFolders/inbox/messages?$filter=isRead eq false&$top=20&$select=id,internetMessageId,subject,from,toRecipients,body,receivedDateTime,internetMessageHeaders,hasAttachments`;
@@ -261,7 +261,7 @@ const fetchNewGraphEmails = async () => {
 
         const result = await response.json();
         if (!response.ok) {
-            logger.error(`❌ Graph Mail API Error: ${result.error?.message || JSON.stringify(result)}`);
+            logger.error(`🚨 📧 [EMAIL] ❌ Graph Mail API Error: ${result.error?.message || JSON.stringify(result)}`);
             return;
         }
 
@@ -270,7 +270,7 @@ const fetchNewGraphEmails = async () => {
             return;
         }
 
-        logger.info(`📬 Found ${messages.length} unread message(s) via Graph API.`);
+        logger.info(`📧 [EMAIL] 📬 Found ${messages.length} unread message(s) via Graph API.`);
 
         // The exact sender address of our own mailbox — used to skip auto-reply loops
         // BUG FIX: Match exact email address, NOT the entire @domain (old code dropped all @edgestone.in mail)
@@ -282,7 +282,7 @@ const fetchNewGraphEmails = async () => {
             const fromName = msg.from?.emailAddress?.name || fromAddr;
 
             if (!fromAddr) {
-                logger.warn(`⚠️ Skipping email with no From address (Graph ID: ${msg.id})`);
+                logger.warn(`⚠️ 📧 [EMAIL] ⚠️ Skipping email with no From address (Graph ID: ${msg.id})`);
                 await markEmailAsRead(msg.id, accessToken);
                 continue;
             }
@@ -299,7 +299,7 @@ const fetchNewGraphEmails = async () => {
                 subjectLower.includes('delivery status notification');
 
             if (isOwnEmail || isSystemBounce || isBounceSubject) {
-                logger.info(`🔁 LOOP PREVENTION: Skipping email from ${fromAddr} (Subject: ${msg.subject})`);
+                logger.info(`📧 [EMAIL] 🔁 LOOP PREVENTION: Skipping email from ${fromAddr} (Subject: ${msg.subject})`);
                 await markEmailAsRead(msg.id, accessToken);
                 continue;
             }
@@ -328,12 +328,12 @@ const fetchNewGraphEmails = async () => {
             };
 
             const recipient = msg.toRecipients?.map(r => r.emailAddress?.address).join(', ') || 'unknown';
-            logger.info(`📩 Graph Email received | from: ${fromAddr} | to: ${recipient} | subject: "${emailData.subject}"`);
+            logger.info(`📧 [EMAIL] 📩 Graph Email received | from: ${fromAddr} | to: ${recipient} | subject: "${emailData.subject}"`);
 
             try {
                 // Skip if already processed in this session (safety net against rapid re-polls)
                 if (processedGraphIds.has(msg.id)) {
-                    logger.info(`🔁 Skipping already-processed message ${msg.id}`);
+                    logger.info(`📧 [EMAIL] 🔁 Skipping already-processed message ${msg.id}`);
                     await markEmailAsRead(msg.id, accessToken);
                     continue;
                 }
@@ -347,12 +347,12 @@ const fetchNewGraphEmails = async () => {
             } catch (e) {
                 // Remove from processed pool if ticket creation failed so it can be retried later, or keep it depending on strictness.
                 // We keep it to prevent infinite loops of bad emails crashing the parser
-                logger.error(`❌ Error creating ticket from Graph email: ${e.message}`, { stack: e.stack });
+                logger.error(`🚨 📧 [EMAIL] ❌ Error creating ticket from Graph email: ${e.message}`, { stack: e.stack });
             }
         }
 
     } catch (err) {
-        logger.error(`❌ Graph Mail Fetch Request Error: ${err.message}`);
+        logger.error(`🚨 📧 [EMAIL] ❌ Graph Mail Fetch Request Error: ${err.message}`);
     }
 };
 
@@ -361,7 +361,7 @@ const fetchNewGraphEmails = async () => {
 // Retained alias so existing require() calls in server.js don't break
 // ─────────────────────────────────────────────────────────────────────────────
 const startImapListener = () => {
-    logger.info('🔌 Starting Microsoft Graph API Email Poller (IMAP replaced)...');
+    logger.info('📧 [EMAIL] 🔌 Starting Microsoft Graph API Email Poller (IMAP replaced)...');
 
     // Run immediately on start
     fetchNewGraphEmails();

@@ -8,7 +8,7 @@ const protect = async (req, res, next) => {
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
         try {
             token = req.headers.authorization.split(' ')[1];
-            logger.debug('🔑 Verifying JWT token...');
+            logger.debug('🛡️ [MIDDLEWARE] 🔑 Verifying incoming JWT Bearer token...');
 
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
@@ -17,7 +17,8 @@ const protect = async (req, res, next) => {
             if (decoded.isAgent) {
                 user = await require('../models/agent').findAgentById(decoded.id);
                 if (user) {
-                    user.role = 'Agent'; // Ensure role is set
+                    // Use database role
+                    user.role = user.role || (user.isSuperAdmin ? 'Super admin' : 'Support crew');
                     user.access = { dashboard: true, tickets: true }; // Default access for agents
                 }
             } else {
@@ -25,7 +26,7 @@ const protect = async (req, res, next) => {
             }
 
             if (!user) {
-                logger.warn(`⚠️ Authorization failed: User/Agent not found for ID ${decoded.id}`);
+                logger.warn(`🚫 [MIDDLEWARE] ⚠️ Authorization completely failed: User/Agent strictly not found for ID ${decoded.id}`);
                 res.status(401);
                 throw new Error('Not authorized, user not found');
             }
@@ -36,11 +37,11 @@ const protect = async (req, res, next) => {
             }
 
             req.user = user;
-            logger.debug(`👤 User authenticated: ${user.email} (${user.role})`);
+            logger.info(`✅ [MIDDLEWARE] 👤 User seamlessly authenticated & cleared identity barriers! Email: ${user.email} (Assigned Role: 🛡️ ${user.role})`);
 
             next();
         } catch (error) {
-            logger.error(`❌ Authorization failed: ${error.message}`);
+            logger.error(`❌ [MIDDLEWARE] 💥 JWT Authorization deeply failed or corrupted: ${error.message}`);
             res.status(401);
             const message = error.message === 'jwt expired' ? 'Token expired' : 'Not authorized, token failed';
             next(new Error(message));
@@ -49,7 +50,7 @@ const protect = async (req, res, next) => {
     }
 
     if (!token) {
-        logger.warn('⚠️ Authorization missing: No token provided');
+        logger.warn('🚩 [MIDDLEWARE] ⚠️ Authorization strictly blocked: No Auth token provided in headers!');
         res.status(401);
         // next(new Error('Not authorized, no token'));
         throw new Error('Not authorized, no token');
@@ -61,24 +62,31 @@ const authorize = (...roles) => {
         // Check if user role is included in allowed roles
         // Also allow if user is superAdmin (access.superAdmin = true)
         if (!req.user) {
+            logger.error('🚫 [AUTHORIZE] ⚠️ Critical block: Not authorized, user payload totally absent!');
             return next(new Error('Not authorized, user not found'));
         }
 
-        const userRole = req.user.role || 'Agent';
-        const isSuperAdmin = req.user.access && req.user.access.superAdmin;
+        const userRole = req.user.role || 'Support crew';
+        const isSuperAdmin = (req.user.access && req.user.access.superAdmin) || (req.user.role === 'Super admin') || req.user.isSuperAdmin;
 
         if (!roles.includes(userRole) && !isSuperAdmin) {
+            logger.debug(`🛑 [AUTHORIZE] ⛔ User Role 👤 [${userRole}] forcefully blocked! Missing required roles: 📜 [${roles.join(', ')}]`);
             res.status(403);
-            return next(new Error(`User role ${userRole} is not authorized to access this route`));
+            return next(new Error(`User role ${userRole} is severely restricted and not authorized to access this route`));
         }
+
+        logger.debug(`✅ [AUTHORIZE] 🎉 User Role 👤 [${userRole}] successfully granted route access pathway!`);
         next();
     };
 };
 
 const requireSuperAdmin = (req, res, next) => {
-    if (req.user && req.user.access && req.user.access.superAdmin) {
+    const isSuperAdmin = (req.user && req.user.access && req.user.access.superAdmin) || (req.user && req.user.role === 'Super admin') || (req.user && req.user.isSuperAdmin);
+    if (isSuperAdmin) {
+        logger.info('👑 [SUPER ADMIN GUARD] ✅ Supreme Admin successfully verified and passed through heavily guarded gateway!');
         next();
     } else {
+        logger.warn('🛑 [SUPER ADMIN GUARD] ⛔ Standard user denied access. Super Admin explicit requirements heavily enforced!');
         res.status(403);
         next(new Error('Not authorized as an admin'));
     }

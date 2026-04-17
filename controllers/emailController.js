@@ -3,7 +3,7 @@ const logger = require('../utils/logger');
 
 const handleWebhook = async (req, res, next) => {
     try {
-        logger.debug('📝 Webhook received');
+        logger.debug('🐞 📧 [EMAIL] 📝 Webhook received');
         // Handle Zepto/Zoho webhooks if applicable
         res.json({ received: true });
     } catch (error) {

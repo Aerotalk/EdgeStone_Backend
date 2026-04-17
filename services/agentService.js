@@ -3,15 +3,15 @@ const bcrypt = require('bcryptjs');
 const logger = require('../utils/logger');
 
 const createAgent = async (data) => {
-    const { name, email, password, status, emails, isSuperAdmin } = data;
+    const { name, email, password, status, emails, isSuperAdmin, role } = data;
 
-    logger.debug(`🛠️ Creating new agent: ${name} (${email})`);
+    logger.debug(`🐞 🕵️ [AGENT] 🛠️ Creating new agent: ${name} (${email})`);
 
     // Check if agent exists
     const existingAgent = await AgentModel.findAgentByEmail(email);
 
     if (existingAgent) {
-        logger.warn(`⚠️ Agent creation failed: Agent already exists with email ${email}`);
+        logger.warn(`⚠️ 🕵️ [AGENT] ⚠️ Agent creation failed: Agent already exists with email ${email}`);
         throw new Error('Agent already exists');
     }
 
@@ -31,29 +31,30 @@ const createAgent = async (data) => {
         status: status || 'Active',
         emails: emails && emails.length > 0 ? emails : [email], // Use provided emails or default to primary email
         isSuperAdmin: isSuperAdmin || false,
+        role: role || (isSuperAdmin ? 'Super admin' : 'Support crew'),
         createdOn
     });
 
-    logger.info(`✅ Agent created successfully: ${agent.name} (${agent.id})`);
+    logger.info(`🕵️ [AGENT] ✅ Agent created successfully: ${agent.name} (${agent.id})`);
 
     return agent;
 };
 
 const getAgents = async (query) => {
-    logger.debug('📋 Fetching all agents...');
+    logger.debug('🐞 🕵️ [AGENT] 📋 Fetching all agents...');
     const agents = await AgentModel.findAllAgents();
-    logger.debug(`🔢 Retrieved ${agents.length} agents.`);
+    logger.debug(`🐞 🕵️ [AGENT] 🔢 Retrieved ${agents.length} agents.`);
     return agents;
 };
 
 const updateAgent = async (id, data) => {
-    const { name, email, status, emails, isSuperAdmin } = data;
+    const { name, email, status, emails, isSuperAdmin, role } = data;
 
-    logger.debug(`🛠️ Updating agent ${id}...`);
+    logger.debug(`🐞 🕵️ [AGENT] 🛠️ Updating agent ${id}...`);
 
     const agent = await AgentModel.findAgentById(id);
     if (!agent) {
-        logger.warn(`⚠️ Update failed: Agent not found for ID ${id}`);
+        logger.warn(`⚠️ 🕵️ [AGENT] ⚠️ Update failed: Agent not found for ID ${id}`);
         throw new Error('Agent not found');
     }
 
@@ -63,6 +64,7 @@ const updateAgent = async (id, data) => {
     if (status) updateData.status = status;
     if (emails) updateData.emails = emails; // expect Array
     if (typeof isSuperAdmin !== 'undefined') updateData.isSuperAdmin = isSuperAdmin;
+    if (role) updateData.role = role;
 
     // Handle password update if provided (non-empty string)
     if (data.password && data.password.trim() !== '') {
@@ -72,13 +74,13 @@ const updateAgent = async (id, data) => {
 
     const updatedAgent = await AgentModel.updateAgent(id, updateData);
 
-    logger.info(`✅ Agent updated successfully: ${updatedAgent.name} (${updatedAgent.id})`);
+    logger.info(`🕵️ [AGENT] ✅ Agent updated successfully: ${updatedAgent.name} (${updatedAgent.id})`);
 
     return updatedAgent;
 };
 
 const getAgentById = async (id) => {
-    logger.debug(`Fetching agent by ID: ${id}`);
+    logger.debug(`🐞 🕵️ [AGENT] Fetching agent by ID: ${id}`);
     const agent = await AgentModel.findAgentById(id);
     if (!agent) {
         throw new Error('Agent not found');

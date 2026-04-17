@@ -37,7 +37,7 @@ const getVendorEmailsForTicket = async (ticketId) => {
 // Separated out to isolate vendor routing logic from the primary client ticketing
 // ─────────────────────────────────────────────────────────────────────────────
 const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
-    logger.info(`🔄 replyToVendor: Ticket ${ticketId} | Agent: ${agentName}`);
+    logger.info(`🎟️ [TICKET] 🔄 replyToVendor: Ticket ${ticketId} | Agent: ${agentName}`);
 
     try {
         const { message, to, cc, bcc, subject } = emailData;
@@ -84,7 +84,7 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
             vendorContactEmails = [vendorContactEmail];
         }
 
-        logger.info(`📧 replyToVendor: Sending email to vendor emails: ${vendorContactEmails.join(', ')}`);
+        logger.info(`🎟️ [TICKET] 📧 replyToVendor: Sending email to vendor emails: ${vendorContactEmails.join(', ')}`);
 
         // 2. Create Reply Record natively mapped to the vendor category
         const reply = await TicketModel.addReply(ticket.id, {
@@ -103,7 +103,7 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
             bcc: bcc || []
         });
 
-        logger.info(`✅ Vendor Reply added to database for Ticket ${ticket.ticketId}`);
+        logger.info(`🎟️ [TICKET] ✅ Vendor Reply added to database for Ticket ${ticket.ticketId}`);
 
         // 3. Send Email explicitly to the vendor
         const emailService = require('./emailService');
@@ -133,7 +133,7 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
             references: threadMessageId 
         });
 
-        logger.info(`📤 Vendor reply email successfully routed to ${vendorContactEmails.join(', ')}`);
+        logger.info(`🎟️ [TICKET] 📤 Vendor reply email successfully routed to ${vendorContactEmails.join(', ')}`);
 
         // 4. BULLETPROOF THREADING FIX: Save the outbound messageId!
         // When the vendor replies, their email client will include this exact ID in the 'In-Reply-To' header.
@@ -142,10 +142,10 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
             const outboundMessageId = sentResult?.messageId;
             if (outboundMessageId) {
                 await TicketModel.updateReply(reply.id, { messageId: outboundMessageId });
-                logger.info(`💾 Saved outbound messageId ${outboundMessageId} to Vendor Reply for structural threading.`);
+                logger.info(`🎟️ [TICKET] 💾 Saved outbound messageId ${outboundMessageId} to Vendor Reply for structural threading.`);
             }
         } catch (captureErr) {
-            logger.warn(`⚠️ Failed to capture vendor outbound messageId: ${captureErr.message}`);
+            logger.warn(`⚠️ 🎟️ [TICKET] ⚠️ Failed to capture vendor outbound messageId: ${captureErr.message}`);
         }
 
         // Log Activity
@@ -162,7 +162,7 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
 
         return reply;
     } catch (error) {
-        logger.error(`❌ replyToVendor Error: ${error.message}`);
+        logger.error(`🚨 🎟️ [TICKET] ❌ replyToVendor Error: ${error.message}`);
         throw error;
     }
 };

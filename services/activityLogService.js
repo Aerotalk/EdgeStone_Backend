@@ -35,7 +35,7 @@ const logActivity = async (ticketId, action, description, author, oldValue = nul
         fieldName
     });
 
-    logger.debug(`📊 Activity logged: ${action} for ticket ${ticketId}`);
+    logger.debug(`🐞 📜 [ACTIVITY] 📊 Activity logged: ${action} for ticket ${ticketId}`);
     return activityLog;
 };
 
@@ -45,9 +45,9 @@ const logActivity = async (ticketId, action, description, author, oldValue = nul
  * @returns {Promise<Array>} Array of activity logs
  */
 const getActivityLogs = async (ticketId) => {
-    logger.debug(`📋 Fetching activity logs for ticket ${ticketId}`);
+    logger.debug(`🐞 📜 [ACTIVITY] 📋 Fetching activity logs for ticket ${ticketId}`);
     const logs = await ActivityLogModel.findActivityLogsByTicketId(ticketId);
-    logger.debug(`🔢 Retrieved ${logs.length} activity logs.`);
+    logger.debug(`🐞 📜 [ACTIVITY] 🔢 Retrieved ${logs.length} activity logs.`);
     return logs;
 };
 

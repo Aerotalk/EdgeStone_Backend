@@ -12,7 +12,7 @@ const logger = require('../utils/logger');
  * @returns {Promise<Object>} Created work note
  */
 const createWorkNote = async (ticketId, text, userId, userName, isSystem = false) => {
-    logger.info(`📝 Creating work note for ticket ${ticketId} by ${userName}`);
+    logger.info(`📝 [WORKNOTE] 📝 Creating work note for ticket ${ticketId} by ${userName}`);
 
     const now = new Date();
     const workNote = await WorkNoteModel.createWorkNote({
@@ -51,7 +51,7 @@ const createWorkNote = async (ticketId, text, userId, userName, isSystem = false
         author: userName
     });
 
-    logger.info(`✅ Work note created successfully: ${workNote.id}`);
+    logger.info(`📝 [WORKNOTE] ✅ Work note created successfully: ${workNote.id}`);
     return workNote;
 };
 
@@ -61,9 +61,9 @@ const createWorkNote = async (ticketId, text, userId, userName, isSystem = false
  * @returns {Promise<Array>} Array of work notes
  */
 const getWorkNotes = async (ticketId) => {
-    logger.debug(`📋 Fetching work notes for ticket ${ticketId}`);
+    logger.debug(`🐞 📝 [WORKNOTE] 📋 Fetching work notes for ticket ${ticketId}`);
     const workNotes = await WorkNoteModel.findWorkNotesByTicketId(ticketId);
-    logger.debug(`🔢 Retrieved ${workNotes.length} work notes.`);
+    logger.debug(`🐞 📝 [WORKNOTE] 🔢 Retrieved ${workNotes.length} work notes.`);
     return workNotes;
 };
 

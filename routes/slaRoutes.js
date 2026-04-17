@@ -2,10 +2,11 @@
 
 const express = require('express');
 const router  = express.Router();
-const { protect } = require('../middlewares/authMiddleware');
+const { protect, requireSuperAdmin } = require('../middlewares/authMiddleware');
 const slaController = require('../controllers/slaController');
 
 router.use(protect);
+router.use(requireSuperAdmin);
 
 // ── SLA CRUD ──────────────────────────────────────────────────────────────────
 

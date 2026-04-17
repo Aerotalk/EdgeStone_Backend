@@ -6,12 +6,12 @@ const logger = require('../utils/logger');
 // @access  Private (Super Admin, Agent)
 const getAllClients = async (req, res, next) => {
     try {
-        logger.debug('📋 Fetching all clients...');
+        logger.debug('🐞 🏢 [CLIENT] 📋 Fetching all clients...');
         const clients = await ClientModel.findAllClients();
-        logger.info(`✅ Successfully fetched ${clients.length} clients`);
+        logger.info(`🏢 [CLIENT] ✅ Successfully fetched ${clients.length} clients`);
         res.status(200).json(clients);
     } catch (error) {
-        logger.error(`❌ Error fetching clients: ${error.message}`);
+        logger.error(`🚨 🏢 [CLIENT] ❌ Error fetching clients: ${error.message}`);
         next(error);
     }
 };
@@ -21,17 +21,17 @@ const getAllClients = async (req, res, next) => {
 // @access  Private (Super Admin, Agent)
 const getClientById = async (req, res, next) => {
     try {
-        logger.debug(`🔍 Fetching client with ID: ${req.params.id}`);
+        logger.debug(`🐞 🏢 [CLIENT] 🔍 Fetching client with ID: ${req.params.id}`);
         const client = await ClientModel.findClientById(req.params.id);
         if (!client) {
-            logger.warn(`⚠️ Client not found: ${req.params.id}`);
+            logger.warn(`⚠️ 🏢 [CLIENT] ⚠️ Client not found: ${req.params.id}`);
             res.status(404);
             throw new Error('Client not found');
         }
-        logger.info(`✅ Successfully fetched client: ${client.name}`);
+        logger.info(`🏢 [CLIENT] ✅ Successfully fetched client: ${client.name}`);
         res.status(200).json(client);
     } catch (error) {
-        logger.error(`❌ Error fetching client ${req.params.id}: ${error.message}`);
+        logger.error(`🚨 🏢 [CLIENT] ❌ Error fetching client ${req.params.id}: ${error.message}`);
         next(error);
     }
 };
@@ -42,11 +42,11 @@ const getClientById = async (req, res, next) => {
 const createClient = async (req, res, next) => {
     try {
         const { name, emails, status } = req.body;
-        logger.debug(`📝 Creating new client: ${name}`);
-        logger.debug(`📧 Emails: ${emails?.join(', ')}`);
+        logger.debug(`🐞 🏢 [CLIENT] 📝 Creating new client: ${name}`);
+        logger.debug(`🐞 🏢 [CLIENT] 📧 Emails: ${emails?.join(', ')}`);
 
         if (!name || !emails || !Array.isArray(emails) || emails.length === 0) {
-            logger.warn('⚠️ Invalid client data: Missing name or emails');
+            logger.warn('⚠️ 🏢 [CLIENT] ⚠️ Invalid client data: Missing name or emails');
             res.status(400);
             throw new Error('Please provide name and at least one email');
         }
@@ -59,10 +59,10 @@ const createClient = async (req, res, next) => {
         };
 
         const client = await ClientModel.createClient(clientData);
-        logger.info(`✅ New client created successfully: ${client.name} (ID: ${client.id})`);
+        logger.info(`🏢 [CLIENT] ✅ New client created successfully: ${client.name} (ID: ${client.id})`);
         res.status(201).json(client);
     } catch (error) {
-        logger.error(`❌ Error creating client: ${error.message}`);
+        logger.error(`🚨 🏢 [CLIENT] ❌ Error creating client: ${error.message}`);
         next(error);
     }
 };
@@ -73,12 +73,12 @@ const createClient = async (req, res, next) => {
 const updateClient = async (req, res, next) => {
     try {
         const { name, emails, status } = req.body;
-        logger.debug(`✏️ Updating client: ${req.params.id}`);
+        logger.debug(`🐞 🏢 [CLIENT] ✏️ Updating client: ${req.params.id}`);
 
         const client = await ClientModel.findClientById(req.params.id);
 
         if (!client) {
-            logger.warn(`⚠️ Client not found for update: ${req.params.id}`);
+            logger.warn(`⚠️ 🏢 [CLIENT] ⚠️ Client not found for update: ${req.params.id}`);
             res.status(404);
             throw new Error('Client not found');
         }
@@ -88,13 +88,13 @@ const updateClient = async (req, res, next) => {
         if (emails) updates.emails = emails;
         if (status) updates.status = status;
 
-        logger.debug(`📝 Update data: ${JSON.stringify(updates)}`);
+        logger.debug(`🐞 🏢 [CLIENT] 📝 Update data: ${JSON.stringify(updates)}`);
 
         const updatedClient = await ClientModel.updateClient(req.params.id, updates);
-        logger.info(`✅ Client updated successfully: ${updatedClient.name} (ID: ${updatedClient.id})`);
+        logger.info(`🏢 [CLIENT] ✅ Client updated successfully: ${updatedClient.name} (ID: ${updatedClient.id})`);
         res.status(200).json(updatedClient);
     } catch (error) {
-        logger.error(`❌ Error updating client ${req.params.id}: ${error.message}`);
+        logger.error(`🚨 🏢 [CLIENT] ❌ Error updating client ${req.params.id}: ${error.message}`);
         next(error);
     }
 };

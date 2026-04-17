@@ -35,7 +35,8 @@ model Agent {
   status       String   @default("Active") // Active, In-Active
   createdOn    String // Display date string "10 Jan 2024"
   emails       String[] // Secondary contact emails
-  isSuperAdmin Boolean  @default(false)
+  isSuperAdmin Boolean  @default(false) // Kept for legacy/fallback
+  role         String   @default("Support crew") // "Super admin", "Manager", "Support crew"
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

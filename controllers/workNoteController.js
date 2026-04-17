@@ -11,7 +11,7 @@ const createWorkNote = async (req, res, next) => {
         const userId = req.user?.id;
         const userName = req.user?.name || 'Agent';
 
-        logger.info(`📝 Request to create work note for ticket ${ticketId}`);
+        logger.info(`📝 [WORKNOTE] 📝 Request to create work note for ticket ${ticketId}`);
 
         if (!text || text.trim() === '') {
             return res.status(400).json({ error: 'Work note text is required' });
@@ -39,7 +39,7 @@ const createWorkNote = async (req, res, next) => {
 const getWorkNotes = async (req, res, next) => {
     try {
         const { ticketId } = req.params;
-        logger.debug(`📋 Request to fetch work notes for ticket ${ticketId}`);
+        logger.debug(`🐞 📝 [WORKNOTE] 📋 Request to fetch work notes for ticket ${ticketId}`);
 
         const workNotes = await workNoteService.getWorkNotes(ticketId);
 

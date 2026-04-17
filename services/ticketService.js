@@ -80,7 +80,7 @@ const findExistingTicketForReply = async (inReplyTo, references, subject) => {
             const tickets = await TicketModel.findAllTickets();
             const ticket = tickets.find(t => t.ticketId.toUpperCase() === friendlyId);
             if (ticket) {
-                logger.info(`🧵 Reply matched via Subject ID: ${friendlyId} → Ticket ${ticket.ticketId}`);
+                logger.info(`🎟️ [TICKET] 🧵 Reply matched via Subject ID: ${friendlyId} → Ticket ${ticket.ticketId}`);
                 return ticket;
             }
         }
@@ -91,14 +91,14 @@ const findExistingTicketForReply = async (inReplyTo, references, subject) => {
         const cleanId = inReplyTo.trim();
         const ticket = await TicketModel.findTicketByMessageId(cleanId);
         if (ticket) {
-            logger.info(`🧵 Reply matched via In-Reply-To (Ticket): ${cleanId} → Ticket ${ticket.ticketId}`);
+            logger.info(`🎟️ [TICKET] 🧵 Reply matched via In-Reply-To (Ticket): ${cleanId} → Ticket ${ticket.ticketId}`);
             return ticket;
         }
 
         // 1.5. Strategy B.2: In-Reply-To matches an Agent Reply Message-ID
         const reply = await TicketModel.findReplyByMessageId(cleanId);
         if (reply && reply.ticket) {
-            logger.info(`🧵 Reply matched via In-Reply-To (Agent Reply): ${cleanId} → Ticket ${reply.ticket.ticketId}`);
+            logger.info(`🎟️ [TICKET] 🧵 Reply matched via In-Reply-To (Agent Reply): ${cleanId} → Ticket ${reply.ticket.ticketId}`);
             return reply.ticket;
         }
     }
@@ -111,7 +111,7 @@ const findExistingTicketForReply = async (inReplyTo, references, subject) => {
         for (const refId of refIds) {
             const ticket = await TicketModel.findTicketByMessageId(refId);
             if (ticket) {
-                logger.info(`🧵 Reply matched via References: ${refId} → Ticket ${ticket.ticketId}`);
+                logger.info(`🎟️ [TICKET] 🧵 Reply matched via References: ${refId} → Ticket ${ticket.ticketId}`);
                 return ticket;
             }
         }
@@ -130,7 +130,7 @@ const findExistingTicketForReply = async (inReplyTo, references, subject) => {
                 t.header && t.header.replace(/^(Re|Fwd|FW|RE|FWD):\s*/gi, '').trim() === stripped
             );
             if (match) {
-                logger.info(`🧵 Reply matched via subject fallback: "${stripped}" → Ticket ${match.ticketId}`);
+                logger.info(`🎟️ [TICKET] 🧵 Reply matched via subject fallback: "${stripped}" → Ticket ${match.ticketId}`);
                 return match;
             }
         }
@@ -148,7 +148,7 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
     const { from, fromName, body, html, date } = emailData;
     const emailReceivedDate = date ? new Date(date) : new Date();
 
-    logger.info(`📩 Appending client reply to existing Ticket ${ticket.ticketId} from ${from}`);
+    logger.info(`🎟️ [TICKET] 📩 Appending client reply to existing Ticket ${ticket.ticketId} from ${from}`);
 
     const reply = await TicketModel.addReply(ticket.id, {
         text: stripHtml(body || html) || '(No Content)',
@@ -176,7 +176,7 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
         author: fromName || from,
     });
 
-    logger.info(`✅ Client reply appended to Ticket ${ticket.ticketId}`);
+    logger.info(`🎟️ [TICKET] ✅ Client reply appended to Ticket ${ticket.ticketId}`);
     return reply;
 };
 
@@ -188,7 +188,7 @@ const appendVendorReplyToTicket = async (ticket, emailData) => {
     const { from, fromName, body, html, date } = emailData;
     const emailReceivedDate = date ? new Date(date) : new Date();
 
-    logger.info(`📩 Appending vendor reply to existing Ticket ${ticket.ticketId} from ${from}`);
+    logger.info(`🎟️ [TICKET] 📩 Appending vendor reply to existing Ticket ${ticket.ticketId} from ${from}`);
 
     const reply = await TicketModel.addReply(ticket.id, {
         text: stripHtml(body || html) || '(No Content)',
@@ -216,14 +216,14 @@ const appendVendorReplyToTicket = async (ticket, emailData) => {
         author: fromName || from,
     });
 
-    logger.info(`✅ Vendor reply appended to Ticket ${ticket.ticketId}`);
+    logger.info(`🎟️ [TICKET] ✅ Vendor reply appended to Ticket ${ticket.ticketId}`);
     return reply;
 };
 
 const createTicketFromEmail = async (emailData) => {
     const { from, fromName, subject, body, date, messageId, inReplyTo, references } = emailData;
 
-    logger.debug(`📥 Processing incoming email from: ${from} | Subject: ${subject}`);
+    logger.debug(`🐞 🎟️ [TICKET] 📥 Processing incoming email from: ${from} | Subject: ${subject}`);
 
     try {
         // 0. Check if this email is a reply to an existing ticket
@@ -237,7 +237,7 @@ const createTicketFromEmail = async (emailData) => {
             // EXPLICIT ROUTING: If the subject contains the explicit vendor suffix (e.g. [#1024-V]), force it into vendor thread
             // even if the email doesn't strictly match the saved vendor emails list in the DB yet!
             if (subject && /\[#V?\d+-V\]/i.test(subject)) {
-                logger.info(`🧵 Force-routing reply into Vendor thread due to -V tag in subject`);
+                logger.info(`🎟️ [TICKET] 🧵 Force-routing reply into Vendor thread due to -V tag in subject`);
                 isVendor = true;
             }
 
@@ -258,7 +258,7 @@ const createTicketFromEmail = async (emailData) => {
 
         if (client) {
             clientId = client.id;
-            logger.debug(`👤 Identified sender as Client: ${client.name} (${client.id})`);
+            logger.debug(`🐞 🎟️ [TICKET] 👤 Identified sender as Client: ${client.name} (${client.id})`);
         } else {
             // Check Vendor
             const VendorModel = require('../models/vendor');
@@ -268,9 +268,9 @@ const createTicketFromEmail = async (emailData) => {
             if (vendor) {
                 vendorId = vendor.id;
                 ticketType = 'Vendor';
-                logger.debug(`🏢 Identified sender as Vendor: ${vendor.name} (${vendor.id})`);
+                logger.debug(`🐞 🎟️ [TICKET] 🏢 Identified sender as Vendor: ${vendor.name} (${vendor.id})`);
             } else {
-                logger.debug(`❓ Sender not identified as existing client or vendor.`);
+                logger.debug(`🐞 🎟️ [TICKET] ❓ Sender not identified as existing client or vendor.`);
             }
         }
 
@@ -290,36 +290,36 @@ const createTicketFromEmail = async (emailData) => {
                 if (c.customerCircuitId && upperSubject.includes(c.customerCircuitId.toUpperCase())) {
                     circuitId = c.customerCircuitId;
                     circuitUUID = c.id;
-                    logger.info(`🔌 Smart Auto-Detected Circuit ID from Subject: ${circuitId} (Customer ID)`);
+                    logger.info(`🎟️ [TICKET] 🔌 Smart Auto-Detected Circuit ID from Subject: ${circuitId} (Customer ID)`);
                     break;
                 }
                 if (c.supplierCircuitId && upperSubject.includes(c.supplierCircuitId.toUpperCase())) {
                     circuitId = c.customerCircuitId; // Displayed fallback
                     circuitUUID = c.id;
-                    logger.info(`🔌 Smart Auto-Detected Circuit ID from Subject: ${c.supplierCircuitId} (Supplier ID)`);
+                    logger.info(`🎟️ [TICKET] 🔌 Smart Auto-Detected Circuit ID from Subject: ${c.supplierCircuitId} (Supplier ID)`);
                     break;
                 }
             }
         } catch (dbErr) {
-            logger.error(`❌ Failed to fetch circuits for validation: ${dbErr.message}`);
+            logger.error(`🚨 🎟️ [TICKET] ❌ Failed to fetch circuits for validation: ${dbErr.message}`);
         }
 
         // 🛡️ CRITICAL GATE: If no circuit matches the DB, absolutely DO NOT create a ticket!
         if (!circuitId) {
-            logger.warn(`🚫 DROPPED EMAIL: Subject "${subject}" from ${from} does not contain any recognized Circuit ID. Ticket will NOT be created.`);
+            logger.warn(`⚠️ 🎟️ [TICKET] 🚫 DROPPED EMAIL: Subject "${subject}" from ${from} does not contain any recognized Circuit ID. Ticket will NOT be created.`);
             return null;
         }
 
         // 3. Generate ID
         const ticketId = await generateTicketId(ticketType);
-        logger.debug(`🆔 Generated ${ticketType} Ticket ID: ${ticketId}`);
+        logger.debug(`🐞 🎟️ [TICKET] 🆔 Generated ${ticketType} Ticket ID: ${ticketId}`);
 
         // 4. Use REAL email received timestamp, not current time
-        logger.info('⏰⏰⏰ PERMAN is fetching time... ⏰⏰⏰');
-        logger.debug(`⏰ Raw Date from Email Parameter: ${date}`);
+        logger.info('🎟️ [TICKET] ⏰⏰⏰ PERMAN is fetching time... ⏰⏰⏰');
+        logger.debug(`🐞 🎟️ [TICKET] ⏰ Raw Date from Email Parameter: ${date}`);
         const emailReceivedDate = date ? new Date(date) : new Date();
-        logger.info(`⏰ PERMAN Calculated Received Date: ${emailReceivedDate.toISOString()}`);
-        logger.info(`⏰ PERMAN Formatted Time: ${emailReceivedDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`);
+        logger.info(`🎟️ [TICKET] ⏰ PERMAN Calculated Received Date: ${emailReceivedDate.toISOString()}`);
+        logger.info(`🎟️ [TICKET] ⏰ PERMAN Formatted Time: ${emailReceivedDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`);
 
         // 5. Create Ticket with real timestamp
         const ticket = await TicketModel.createTicket({
@@ -375,7 +375,7 @@ const createTicketFromEmail = async (emailData) => {
         });
 
 
-        logger.info(`✅ ${ticketType} Ticket Created Successfully: ${ticket.ticketId} at ${ticket.receivedTime}`);
+        logger.info(`🎟️ [TICKET] ✅ ${ticketType} Ticket Created Successfully: ${ticket.ticketId} at ${ticket.receivedTime}`);
 
         // --- NEW: Automatically map SLA on Ticket Creation ---
         try {
@@ -393,25 +393,25 @@ const createTicketFromEmail = async (emailData) => {
                     statusReason: ''
                 }
             });
-            logger.info(`✅ SLA Record mapped dynamically for Ticket ${ticket.ticketId}`);
+            logger.info(`🎟️ [TICKET] ✅ SLA Record mapped dynamically for Ticket ${ticket.ticketId}`);
         } catch (slaErr) {
-            logger.error(`❌ Failed to automatically start SLA Record on Ticket open: ${slaErr.message}`);
+            logger.error(`🚨 🎟️ [TICKET] ❌ Failed to automatically start SLA Record on Ticket open: ${slaErr.message}`);
         }
         // --------------------------------------------------------
 
         // 6. Send Auto-Reply with 5-second delay (Only for Clients)
         if (ticketType === 'Vendor') {
-            logger.info(`⏰ Skipping auto-reply for Vendor ticket ${ticket.ticketId} to prevent infinite automated loops.`);
+            logger.info(`🎟️ [TICKET] ⏰ Skipping auto-reply for Vendor ticket ${ticket.ticketId} to prevent infinite automated loops.`);
             return ticket;
         }
         // Lazy load emailService to avoid circular dependency
         const emailService = require('./emailService');
 
-        logger.info(`⏰ Scheduling auto-reply to ${from} in 5 seconds...`);
+        logger.info(`🎟️ [TICKET] ⏰ Scheduling auto-reply to ${from} in 5 seconds...`);
 
         setTimeout(async () => {
             try {
-                logger.info(`🔄 Initiating auto-reply sequence for Ticket ${ticket.ticketId}...`);
+                logger.info(`🎟️ [TICKET] 🔄 Initiating auto-reply sequence for Ticket ${ticket.ticketId}...`);
                 await emailService.sendEmail({
                     to: from,
                     subject: `Ticket Received: ${ticket.ticketId} - ${subject}`,
@@ -430,7 +430,7 @@ const createTicketFromEmail = async (emailData) => {
                     references: messageId
                 });
 
-                logger.info(`📤 Auto-reply sent successfully to ${from}`);
+                logger.info(`🎟️ [TICKET] 📤 Auto-reply sent successfully to ${from}`);
 
                 // Log auto-reply activity
                 const ActivityLogModel = require('../models/activityLog');
@@ -452,22 +452,22 @@ const createTicketFromEmail = async (emailData) => {
                     author: 'System'
                 });
             } catch (error) {
-                logger.error(`❌ FAILED to send auto-reply for Ticket ${ticket.ticketId}`);
-                logger.error(`❌ Reason: ${error.message}`);
-                logger.error(`⚠️ Check EMAIL_PROVIDER and provider credentials (ZEPTO_MAIL_TOKEN / RESEND_API_KEY).`, { stack: error.stack });
+                logger.error(`🚨 🎟️ [TICKET] ❌ FAILED to send auto-reply for Ticket ${ticket.ticketId}`);
+                logger.error(`🚨 🎟️ [TICKET] ❌ Reason: ${error.message}`);
+                logger.error(`🚨 🎟️ [TICKET] ⚠️ Check EMAIL_PROVIDER and provider credentials (ZEPTO_MAIL_TOKEN / RESEND_API_KEY).`, { stack: error.stack });
             }
         }, 5000); // 5 seconds delay
 
         return ticket;
 
     } catch (error) {
-        logger.error(`❌ Error in createTicketFromEmail: ${error.message}`, { stack: error.stack });
+        logger.error(`🚨 🎟️ [TICKET] ❌ Error in createTicketFromEmail: ${error.message}`, { stack: error.stack });
         throw error;
     }
 };
 
 const getTickets = async () => {
-    logger.debug('📋 Fetching all tickets...');
+    logger.debug('🐞 🎟️ [TICKET] 📋 Fetching all tickets...');
     const tickets = await TicketModel.findAllTickets({
         include: {
             replies: {
@@ -480,12 +480,12 @@ const getTickets = async () => {
             createdAt: 'desc'
         }
     });
-    logger.debug(`🔢 Retrieved ${tickets.length} tickets.`);
+    logger.debug(`🐞 🎟️ [TICKET] 🔢 Retrieved ${tickets.length} tickets.`);
     return tickets;
 };
 
 const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlContent) => {
-    logger.info(`↩️ Processing reply to ticket ${ticketId} by ${agentName} (${agentEmail})`);
+    logger.info(`🎟️ [TICKET] ↩️ Processing reply to ticket ${ticketId} by ${agentName} (${agentEmail})`);
 
     try {
         // 1. Find Ticket
@@ -516,13 +516,13 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
             to: [ticket.email],
         });
 
-        logger.info(`✅ Reply added to database for Ticket ${ticket.ticketId}`);
+        logger.info(`🎟️ [TICKET] ✅ Reply added to database for Ticket ${ticket.ticketId}`);
 
         // 3. Send Email to Client via MS Graph
         // If the frontend provided a pre-composed HTML body (with formatted signature + images),
         // use it directly. Otherwise fall back to plain-text → HTML conversion.
         const emailService = require('./emailService');
-        logger.info(`📧 Sending Agent Reply Email to: ${ticket.email} | Subject: Re: ${ticket.header}`);
+        logger.info(`🎟️ [TICKET] 📧 Sending Agent Reply Email to: ${ticket.email} | Subject: Re: ${ticket.header}`);
 
         const emailHtml = htmlContent
             ? htmlContent   // ← Rich HTML: bold, italic, images, font colors all preserved
@@ -542,7 +542,7 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
             references: ticket.messageId
         });
 
-        logger.info(`📤 Reply email sent to ${ticket.email}`);
+        logger.info(`🎟️ [TICKET] 📤 Reply email sent to ${ticket.email}`);
 
         // Try to capture and save the outgoing Message-ID for future reverse-matching
         try {
@@ -551,10 +551,10 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
 
             if (outboundMessageId) {
                 await TicketModel.updateReply(reply.id, { messageId: outboundMessageId });
-                logger.info(`💾 Saved outbound messageId ${outboundMessageId} to Reply record for threading.`);
+                logger.info(`🎟️ [TICKET] 💾 Saved outbound messageId ${outboundMessageId} to Reply record for threading.`);
             }
         } catch (captureErr) {
-            logger.warn(`⚠️ Failed to capture outbound messageId: ${captureErr.message}`);
+            logger.warn(`⚠️ 🎟️ [TICKET] ⚠️ Failed to capture outbound messageId: ${captureErr.message}`);
         }
 
         // 4. Log activity
@@ -577,19 +577,19 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
             author: agentName
         });
 
-        logger.info(`📊 Activity logged: reply by ${agentName}`);
+        logger.info(`🎟️ [TICKET] 📊 Activity logged: reply by ${agentName}`);
 
         return reply;
 
     } catch (error) {
-        logger.error(`❌ Error in replyToTicket: ${error.message}`, { stack: error.stack });
+        logger.error(`🚨 🎟️ [TICKET] ❌ Error in replyToTicket: ${error.message}`, { stack: error.stack });
         throw error;
     }
 };
 
 const updateTicket = async (ticketId, updates, agentName) => {
-    logger.info(`🔄 Updating ticket ${ticketId} by ${agentName}`);
-    logger.debug(`Updates: ${JSON.stringify(updates)}`);
+    logger.info(`🎟️ [TICKET] 🔄 Updating ticket ${ticketId} by ${agentName}`);
+    logger.debug(`🐞 🎟️ [TICKET] Updates: ${JSON.stringify(updates)}`);
 
     try {
         // 1. Find the ticket
@@ -629,7 +629,7 @@ const updateTicket = async (ticketId, updates, agentName) => {
             // Auto-transition to "In Progress" if circuit is being set and priority exists
             if (settingCircuit && hasPriority) {
                 finalUpdates.status = 'In Progress';
-                logger.info(`✨ Auto-transitioning ticket to "In Progress" (circuit + priority set)`);
+                logger.info(`🎟️ [TICKET] ✨ Auto-transitioning ticket to "In Progress" (circuit + priority set)`);
 
                 // Log the auto-transition
                 await ActivityLogModel.createActivityLog({
@@ -693,7 +693,7 @@ const updateTicket = async (ticketId, updates, agentName) => {
         // 4. Update the ticket
         const updatedTicket = await TicketModel.updateTicket(ticket.id, finalUpdates);
 
-        logger.info(`✅ Ticket ${ticket.ticketId} updated successfully. New status: ${updatedTicket.status}`);
+        logger.info(`🎟️ [TICKET] ✅ Ticket ${ticket.ticketId} updated successfully. New status: ${updatedTicket.status}`);
 
         // --- NEW: SLA Engine Integration for Ticket Closure ---
         if (finalUpdates.status === 'Closed' && ticket.status !== 'Closed') {
@@ -716,7 +716,7 @@ const updateTicket = async (ticketId, updates, agentName) => {
                     if (!isNaN(sTime.getTime()) && !isNaN(eTime.getTime())) {
                         const diffMins = Math.round((eTime.getTime() - sTime.getTime()) / 60000);
                         
-                        logger.info(`⏱️ Ticket ${ticket.ticketId} downtime calculated as ${diffMins} minutes.`);
+                        logger.info(`🎟️ [TICKET] ⏱️ Ticket ${ticket.ticketId} downtime calculated as ${diffMins} minutes.`);
 
                         // 3. Forward downtime to Circuit SLA engine
                         if (updatedTicket.circuitId && diffMins > 0) {
@@ -743,7 +743,7 @@ const updateTicket = async (ticketId, updates, agentName) => {
                                     const daysInMonth = new Date(nowClosed.getFullYear(), nowClosed.getMonth() + 1, 0).getDate();
                                     const totalUptimeMinutes = daysInMonth * 24 * 60; 
                                     
-                                    logger.info(`⚙️ Syncing ${diffMins} mins downtime to ${circuitSlas.length} SLA(s) for Circuit ${circuit.id} (Uptime Baseline: ${totalUptimeMinutes}m)`);
+                                    logger.info(`🎟️ [TICKET] ⚙️ Syncing ${diffMins} mins downtime to ${circuitSlas.length} SLA(s) for Circuit ${circuit.id} (Uptime Baseline: ${totalUptimeMinutes}m)`);
                                     
                                     let highestCompensation = 0;
                                     let highestStatus = 'SAFE';
@@ -755,7 +755,7 @@ const updateTicket = async (ticketId, updates, agentName) => {
                                             highestStatus = updatedSla.status;
                                         }
                                     }
-                                    logger.info(`✅ Circuit SLA engine results: status=${highestStatus}, compensation=${highestCompensation}%`);
+                                    logger.info(`🎟️ [TICKET] ✅ Circuit SLA engine results: status=${highestStatus}, compensation=${highestCompensation}%`);
 
                                     // 4. Write compensation result BACK to the ticket's SLARecord
                                     // This is what makes compensation visible in the Ticket dashboard sidebar
@@ -779,19 +779,19 @@ const updateTicket = async (ticketId, updates, agentName) => {
                                                 : 'Circuit availability within SLA bounds'
                                         }
                                     });
-                                    logger.info(`💾 SLARecord updated — compensation: "${compensationDisplay}", status: "${slaStatusDisplay}"`);
+                                    logger.info(`🎟️ [TICKET] 💾 SLARecord updated — compensation: "${compensationDisplay}", status: "${slaStatusDisplay}"`);
 
                                 } else {
-                                    logger.warn(`⚠️ Circuit ${circuit.id} has no active SLAs to update.`);
+                                    logger.warn(`⚠️ 🎟️ [TICKET] ⚠️ Circuit ${circuit.id} has no active SLAs to update.`);
                                 }
                             } else {
-                                logger.error(`❌ Could not find exact Circuit UUID for ticket's circuitId string: ${updatedTicket.circuitId}`);
+                                logger.error(`🚨 🎟️ [TICKET] ❌ Could not find exact Circuit UUID for ticket's circuitId string: ${updatedTicket.circuitId}`);
                             }
                         }
                     }
                 }
             } catch (slaErr) {
-                logger.error(`❌ Complete SLA Update Lifecycle failed for Ticket ${ticket.ticketId}: ${slaErr.message}`, { stack: slaErr.stack });
+                logger.error(`🚨 🎟️ [TICKET] ❌ Complete SLA Update Lifecycle failed for Ticket ${ticket.ticketId}: ${slaErr.message}`, { stack: slaErr.stack });
             }
         }
         // -----------------------------------------------------------
@@ -799,7 +799,7 @@ const updateTicket = async (ticketId, updates, agentName) => {
         return updatedTicket;
 
     } catch (error) {
-        logger.error(`❌ Error in updateTicket: ${error.message}`, { stack: error.stack });
+        logger.error(`🚨 🎟️ [TICKET] ❌ Error in updateTicket: ${error.message}`, { stack: error.stack });
         throw error;
     }
 };

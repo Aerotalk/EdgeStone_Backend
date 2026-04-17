@@ -8,9 +8,9 @@ const {
 } = require('../controllers/clientController');
 const { protect, authorize } = require('../middlewares/authMiddleware');
 
-router.get('/', protect, authorize('Super Admin', 'Agent'), getAllClients);
-router.get('/:id', protect, authorize('Super Admin', 'Agent'), getClientById);
-router.post('/', protect, authorize('Super Admin', 'Agent'), createClient);
-router.put('/:id', protect, authorize('Super Admin', 'Agent'), updateClient);
+router.get('/', protect, authorize('Manager', 'Support crew'), getAllClients);
+router.get('/:id', protect, authorize('Manager', 'Support crew'), getClientById);
+router.post('/', protect, authorize('Manager'), createClient);
+router.put('/:id', protect, authorize('Manager'), updateClient);
 
 module.exports = router;
