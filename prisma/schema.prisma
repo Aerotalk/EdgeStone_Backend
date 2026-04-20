@@ -101,6 +101,8 @@ model Ticket {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  
+  isSlaActive Boolean @default(true)
 
   replies      Reply[]
   notes        Note[]
@@ -154,6 +156,7 @@ model SLARecord {
   status       String // Breached, Safe
   compensation String?
   statusReason String?
+  timeZone     String @default("UTC")
 
   ticketId String @unique
   ticket   Ticket @relation(fields: [ticketId], references: [id])
@@ -213,6 +216,7 @@ model Circuit {
   contractTermMonths Int? // "Contract term (In Months)"
   contractType       String? // "Contract Type"
   mrc                Float   @default(1000) // Monthly Recurring Charge
+  nrc                Float?
 
   // --- Supplier Details ---
   supplierCircuitId          String  @unique // "Suppiler Circuit ID"
@@ -222,6 +226,7 @@ model Circuit {
   supplierContractType       String? // "Contract Type" (Supplier side)
   billingStartDate           String? // "Billing Start Date"
   supplierMrc                Float   @default(800) // Supplier Monthly Recurring Charge
+  supplierNrc                Float?
 
   // --- Relations ---
   clientId String?

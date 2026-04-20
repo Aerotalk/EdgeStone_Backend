@@ -103,6 +103,40 @@ exports.updateSLAClosure = async (req, res) => {
     }
 };
 
+exports.manualUpdate = async (req, res) => {
+    try {
+        const { ticketId } = req.params;
+        const { startDate, startTime, closeDate, closedTime, timeZone } = req.body;
+        
+        const agentName = req.user ? req.user.name : 'Agent';
+        logger.info(`⏱️ [SLA] 🔄 ${agentName} manually updating SLA for ticket ${ticketId}`);
+        
+        const { PrismaClient } = require('@prisma/client');
+        const prisma = new PrismaClient();
+        
+        const existing = await prisma.sLARecord.findUnique({ where: { ticketId } });
+        if (!existing) {
+            return res.status(404).json({ success: false, message: 'SLA record not found' });
+        }
+        
+        const updatedRecord = await prisma.sLARecord.update({
+            where: { ticketId },
+            data: {
+                ...(startDate !== undefined && { startDate }),
+                ...(startTime !== undefined && { startTime }),
+                ...(closeDate !== undefined && { closeDate }),
+                ...(closedTime !== undefined && { closedTime }),
+                ...(timeZone !== undefined && { timeZone })
+            }
+        });
+        
+        res.status(200).json({ success: true, data: updatedRecord });
+    } catch (error) {
+        logger.error('🚨 ⏱️ [SLA] ❌ Error manually updating SLA:', error);
+        res.status(500).json({ success: false, message: 'Failed to manually update SLA' });
+    }
+};
+
 exports.updateSLARecordStatus = async (req, res) => {
     try {
         const { id } = req.params;

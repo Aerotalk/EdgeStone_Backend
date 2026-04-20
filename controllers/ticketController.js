@@ -105,11 +105,36 @@ const getVendorEmails = async (req, res, next) => {
     }
 };
 
+const toggleSla = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { isSlaActive } = req.body;
+        const agentName = req.user ? req.user.name : 'Agent';
+        
+        logger.info(`🎟️ [TICKET] 🔄 Agent ${agentName} toggling SLA for ticket ${id} to ${isSlaActive}`);
+        
+        // Assuming we just update the db model directly here or through ticketService
+        // but for now, directly via prisma if ticketService doesn't have it
+        const { PrismaClient } = require('@prisma/client');
+        const prisma = new PrismaClient();
+        const updatedTicket = await prisma.ticket.update({
+            where: { id },
+            data: { isSlaActive }
+        });
+        
+        res.json({ message: 'SLA Status Updated', ticket: updatedTicket });
+    } catch (error) {
+        logger.error(`🚨 🎟️ [TICKET] ❌ Error toggling SLA: ${error.message}`);
+        next(error);
+    }
+};
+
 module.exports = {
     getTickets,
     createTicket,
     updateTicket,
     replyTicket,
     replyVendorTicket,
-    getVendorEmails
+    getVendorEmails,
+    toggleSla
 };

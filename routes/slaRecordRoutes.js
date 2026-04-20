@@ -10,6 +10,7 @@ router.get('/export', slaRecordController.exportSLARecords);
 router.post('/', slaRecordController.createSLARecord);
 router.get('/ticket/:ticketId', slaRecordController.getSLARecordByTicketId);
 router.patch('/ticket/:ticketId/closure', slaRecordController.updateSLAClosure);
+router.put('/ticket/:ticketId/manual-update', slaRecordController.manualUpdate);
 router.put('/:id/status', slaRecordController.updateSLARecordStatus);
 
 module.exports = router;

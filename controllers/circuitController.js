@@ -26,8 +26,9 @@ const serialize = (circuit) => ({
     supplierServiceDescription: circuit.supplierServiceDescription,
     supplierContractTermMonths: circuit.supplierContractTermMonths,
     supplierContractType: circuit.supplierContractType,
-    billingStartDate:     circuit.billingStartDate,
     supplierMrc:          circuit.supplierMrc,
+    nrc:                  circuit.nrc,
+    supplierNrc:          circuit.supplierNrc,
     clientId:             circuit.clientId,
     vendorId:             circuit.vendorId,
     vendor:               circuit.vendor,
@@ -37,8 +38,14 @@ const serialize = (circuit) => ({
 // ── GET /api/circuits ─────────────────────────────────────────────────────────
 const getCircuits = async (req, res, next) => {
     try {
+        const { vendorId, clientId } = req.query;
+        let whereClause = {};
+        if (vendorId) whereClause.vendorId = vendorId;
+        if (clientId) whereClause.clientId = clientId;
+
         logger.debug('🐞 🔌 [CIRCUIT] 📝 Request received: getCircuits');
         const circuits = await prisma.circuit.findMany({
+            where: whereClause,
             include: CIRCUIT_INCLUDE,
             orderBy: { createdAt: 'desc' },
         });
@@ -73,6 +80,8 @@ const createCircuit = async (req, res, next) => {
             supplierContractType,
             billingStartDate,
             supplierMrc,
+            nrc,
+            supplierNrc,
         } = req.body;
 
         if (!customerCircuitId || !customerCircuitId.trim()) {
@@ -112,6 +121,8 @@ const createCircuit = async (req, res, next) => {
                 supplierContractType:       supplierContractType || null,
                 billingStartDate:           billingStartDate || null,
                 supplierMrc:                supplierMrc != null ? Number(supplierMrc) : 800,
+                nrc:                        nrc != null ? Number(nrc) : null,
+                supplierNrc:                supplierNrc != null ? Number(supplierNrc) : null,
             },
             include: CIRCUIT_INCLUDE,
         });
@@ -152,6 +163,8 @@ const updateCircuit = async (req, res, next) => {
             supplierContractType,
             billingStartDate,
             supplierMrc,
+            nrc,
+            supplierNrc,
         } = req.body;
 
         // Check duplicate customerCircuitId only if it's changing
@@ -186,6 +199,8 @@ const updateCircuit = async (req, res, next) => {
                 ...(supplierContractType !== undefined && { supplierContractType: supplierContractType || null }),
                 ...(billingStartDate    !== undefined && { billingStartDate:      billingStartDate || null }),
                 ...(supplierMrc         !== undefined && { supplierMrc:           supplierMrc != null ? Number(supplierMrc) : existing.supplierMrc }),
+                ...(nrc                 !== undefined && { nrc:                   nrc != null ? Number(nrc) : existing.nrc }),
+                ...(supplierNrc         !== undefined && { supplierNrc:           supplierNrc != null ? Number(supplierNrc) : existing.supplierNrc }),
             },
             include: CIRCUIT_INCLUDE,
         });

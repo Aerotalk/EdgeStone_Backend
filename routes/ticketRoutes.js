@@ -9,6 +9,7 @@ const { protect } = require('../middlewares/authMiddleware');
 router.get('/', protect, ticketController.getTickets);
 router.post('/', protect, ticketController.createTicket);
 router.patch('/:id', protect, ticketController.updateTicket); // Update ticket
+router.patch('/:id/sla-toggle', protect, ticketController.toggleSla);
 router.post('/:id/reply', protect, ticketController.replyTicket);
 router.get('/:id/vendor-emails', protect, ticketController.getVendorEmails);
 router.post('/:id/vendor-reply', protect, ticketController.replyVendorTicket);
