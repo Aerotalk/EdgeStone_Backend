@@ -245,7 +245,7 @@ const extractSLAStartTimes = async (text) => {
 
         return JSON.parse(response.choices[0].message.content);
     } catch (e) {
-        logger.error(\`🚨 [AI] Error extracting SLA start time: \${e.message}\`);
+        logger.error(`🚨 [AI] Error extracting SLA start time: ${e.message}`);
         return { found: false };
     }
 };
