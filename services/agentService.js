@@ -43,8 +43,28 @@ const createAgent = async (data) => {
 const getAgents = async (query) => {
     logger.debug('🐞 🕵️ [AGENT] 📋 Fetching all agents...');
     const agents = await AgentModel.findAllAgents();
-    logger.debug(`🐞 🕵️ [AGENT] 🔢 Retrieved ${agents.length} agents.`);
-    return agents;
+    
+    // Fetch signature connection status
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+    
+    const signaturesCount = await prisma.signature.groupBy({
+        by: ['agentId'],
+        _count: { agentId: true }
+    });
+    
+    const signatureMap = {};
+    signaturesCount.forEach(s => {
+        signatureMap[s.agentId] = s._count.agentId > 0;
+    });
+    
+    const agentsWithStatus = agents.map(agent => ({
+        ...agent,
+        signatureConnected: !!signatureMap[agent.id]
+    }));
+    
+    logger.debug(`🐞 🕵️ [AGENT] 🔢 Retrieved ${agentsWithStatus.length} agents with signature status.`);
+    return agentsWithStatus;
 };
 
 const updateAgent = async (id, data) => {

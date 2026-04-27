@@ -39,9 +39,13 @@ const createSignature = async (req, res, next) => {
             return res.status(400).json({ error: 'agentId, name, and content are required' });
         }
 
-        // If this signature is being set as a default, clear the same defaultFor from others
-        if (defaultFor) {
-            await clearConflictingDefaults(agentId, defaultFor, null);
+        // Check if agent already has a signature (One signature per agent restriction)
+        const existingSignature = await prisma.signature.findFirst({
+            where: { agentId }
+        });
+
+        if (existingSignature) {
+            return res.status(400).json({ error: 'Agent already has a signature. Please update the existing signature.' });
         }
 
         const signature = await prisma.signature.create({

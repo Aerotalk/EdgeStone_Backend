@@ -23,8 +23,20 @@ describe('E2E: Admin CRUD Operations', () => {
         emails: [`vendor_${suffix}@example.com`]
     };
 
+    let createdAgentId, createdClientId, createdVendorId;
+
     beforeAll(async () => {
         token = await helpers.login();
+    });
+
+    afterAll(async () => {
+        // Cleanup all E2E resources directly via Prisma instead of API to ensure tests don't leave residual dummy data
+        const { PrismaClient } = require('@prisma/client');
+        const prisma = new PrismaClient();
+        await prisma.user.deleteMany({ where: { name: { startsWith: 'E2E ' } } });
+        await prisma.client.deleteMany({ where: { name: { startsWith: 'E2E ' } } });
+        await prisma.vendor.deleteMany({ where: { name: { startsWith: 'E2E ' } } });
+        await prisma.$disconnect();
     });
 
     const headers = () => ({ 'Authorization': `Bearer ${token}` });
@@ -39,7 +51,8 @@ describe('E2E: Admin CRUD Operations', () => {
 
         expect(createRes.status).toBe(201);
         expect(createRes.body.name).toBe(testAgent.name);
-        const agentId = createRes.body.id;
+        createdAgentId = createRes.body.id;
+        const agentId = createdAgentId;
 
         // Fetch List
         const listRes = await request(config.baseURL)
@@ -60,7 +73,8 @@ describe('E2E: Admin CRUD Operations', () => {
             .send(testClient);
 
         expect(createRes.status).toBe(201);
-        const clientId = createRes.body.id;
+        createdClientId = createRes.body.id;
+        const clientId = createdClientId;
 
         // Update
         const updateRes = await request(config.baseURL)
@@ -81,7 +95,8 @@ describe('E2E: Admin CRUD Operations', () => {
             .send(testVendor);
 
         expect(createRes.status).toBe(201);
-        const vendorId = createRes.body.id;
+        createdVendorId = createRes.body.id;
+        const vendorId = createdVendorId;
 
         // Update
         const updateRes = await request(config.baseURL)

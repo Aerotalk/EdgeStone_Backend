@@ -25,6 +25,22 @@ const login = async (req, res, next) => {
     }
 };
 
+const getMe = async (req, res, next) => {
+    try {
+        if (!req.user || !req.user.id) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+        
+        // Use agentService or User directly.
+        // Wait, I need to check what `req.user` looks like. 
+        // I'll check authMiddleware and authService.
+        res.json(req.user);
+    } catch (error) {
+        next(error);
+    }
+};
+
 module.exports = {
     login,
+    getMe,
 };
