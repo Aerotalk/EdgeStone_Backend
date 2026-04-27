@@ -274,40 +274,76 @@ const createTicketFromEmail = async (emailData) => {
             }
         }
 
-        // 2. Strict Parse Subject for Circuit ID from Database
+        // 2. Parse Subject and Body for Circuit ID from Database via AI
         let circuitId = null;
         let circuitUUID = null;
+        let foundLocation = 'none';
 
         const prisma = require('../models/index');
+        const aiService = require('./aiService');
+        
         try {
             // Fetch circuits including supplier IDs
             const allCircuits = await prisma.circuit.findMany({ 
                 select: { id: true, customerCircuitId: true, supplierCircuitId: true } 
             });
-            const upperSubject = subject.toUpperCase();
+            
+            const validCircuitIds = [];
+            allCircuits.forEach(c => {
+                if (c.customerCircuitId) validCircuitIds.push(c.customerCircuitId);
+                if (c.supplierCircuitId) validCircuitIds.push(c.supplierCircuitId);
+            });
 
-            for (const c of allCircuits) {
-                if (c.customerCircuitId && upperSubject.includes(c.customerCircuitId.toUpperCase())) {
-                    circuitId = c.customerCircuitId;
-                    circuitUUID = c.id;
-                    logger.info(`🎟️ [TICKET] 🔌 Smart Auto-Detected Circuit ID from Subject: ${circuitId} (Customer ID)`);
-                    break;
-                }
-                if (c.supplierCircuitId && upperSubject.includes(c.supplierCircuitId.toUpperCase())) {
-                    circuitId = c.customerCircuitId; // Displayed fallback
-                    circuitUUID = c.id;
-                    logger.info(`🎟️ [TICKET] 🔌 Smart Auto-Detected Circuit ID from Subject: ${c.supplierCircuitId} (Supplier ID)`);
-                    break;
-                }
+            // Make the AI evaluation Call
+            const aiResult = await aiService.analyzeEmailForCircuitId(subject, body, validCircuitIds);
+            
+            if (aiResult && aiResult.circuitId && aiResult.foundIn !== 'none') {
+                 // The AI found a valid Circuit. Let's trace it back to our DB to get its UUID and ensure strictly it exists.
+                 const matchingCircuit = allCircuits.find(c => 
+                     (c.customerCircuitId && c.customerCircuitId.toUpperCase() === aiResult.circuitId.toUpperCase()) || 
+                     (c.supplierCircuitId && c.supplierCircuitId.toUpperCase() === aiResult.circuitId.toUpperCase())
+                 );
+                 
+                 if (matchingCircuit) {
+                     circuitId = matchingCircuit.customerCircuitId; // Master ID
+                     circuitUUID = matchingCircuit.id;
+                     foundLocation = aiResult.foundIn;
+                     logger.info(`🎟️ [TICKET] 🧠 AI Smart Auto-Detected Circuit ID: ${aiResult.circuitId} in ${foundLocation}`);
+                 }
             }
+
         } catch (dbErr) {
-            logger.error(`🚨 🎟️ [TICKET] ❌ Failed to fetch circuits for validation: ${dbErr.message}`);
+            logger.error(`🚨 🎟️ [TICKET] ❌ Failed to process AI Circuit identification: ${dbErr.message}`);
         }
 
         // 🛡️ CRITICAL GATE: If no circuit matches the DB, absolutely DO NOT create a ticket!
         if (!circuitId) {
-            logger.warn(`⚠️ 🎟️ [TICKET] 🚫 DROPPED EMAIL: Subject "${subject}" from ${from} does not contain any recognized Circuit ID. Ticket will NOT be created.`);
+            logger.warn(`⚠️ 🎟️ [TICKET] 🚫 DROPPED EMAIL: Subject "${subject}" from ${from} does not contain any recognized Circuit ID natively or via AI. Ticket will NOT be created.`);
             return null;
+        }
+
+        // 💡 NEW TICKET AI RULE: Circuit ID found in body but NOT subject -> create ticket but send a warning back
+        if (foundLocation === 'body') {
+             logger.info(`⚠️ 🎟️ [TICKET] AI detected Circuit ID (${circuitId}) only in the body. Triggering warning email.`);
+             const emailService = require('./emailService');
+             
+             // Fire and forget warning email
+             emailService.sendEmail({
+                to: from,
+                subject: `Re: ${subject || 'Your Support Request'}`,
+                html: `
+                    <div style="font-family: Arial, sans-serif; color: #333;">
+                        <p>Hello,</p>
+                        <p>We have successfully processed your request and created a ticket based on the Circuit ID located in the body of your email.</p>
+                        <p><strong>Please mention the Circuit ID in the subject line from next time</strong> to ensure faster and perfectly accurate routing.</p>
+                        <br/>
+                        <p>Thank you.</p>
+                        <hr/>
+                        <p style="font-size: 12px; color: #666;">EdgeStone AI Support Router</p>
+                    </div>
+                `,
+                text: `Hello, We have processed your request based on the Circuit ID in your email body. Please mention the Circuit ID in the subject line from next time. Thank you.`,
+             }).catch(err => logger.error(`🚨 [TICKET] Failed to send AI warning email: ${err.message}`));
         }
 
         // 3. Generate ID

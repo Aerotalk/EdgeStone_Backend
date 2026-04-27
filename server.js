@@ -160,6 +160,13 @@ try {
     logger.error('❌ Failed to load Signature Routes:', error);
 }
 
+try {
+    app.use('/api/ai', require('./routes/aiRoutes'));
+    logger.debug('🤖 AI Support routes registered');
+} catch (error) {
+    logger.error('❌ Failed to load AI Routes:', error);
+}
+
 // Error Handler
 app.use(errorHandler);
 
