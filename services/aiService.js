@@ -62,6 +62,24 @@ const analyzeEmailForCircuitId = async (subject, body, validCircuitIds) => {
     }
 };
 
+const resolveTicketUUID = async (prisma, ticketIdArg) => {
+    // If it is a standard UUID format, return it
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ticketIdArg)) {
+        return ticketIdArg;
+    }
+    
+    // Assume it's a human readable ID like #1080 or 1080
+    // Try both #1080 and 1080 (add # if missing)
+    const normalizedId = ticketIdArg.startsWith('#') ? ticketIdArg : `#${ticketIdArg}`;
+    
+    const ticket = await prisma.ticket.findFirst({
+        where: { ticketId: normalizedId }
+    });
+    
+    if (ticket) return ticket.id;
+    throw new Error(`Could not find a ticket in the database matching ID ${normalizedId}`);
+};
+
 /**
  * Handle incoming user chatbot queries, inject tools for context.
  */
@@ -105,7 +123,7 @@ const processChatbotQuery = async (messages, userTimezone = 'Asia/Kolkata') => {
                     parameters: {
                         type: "object",
                         properties: {
-                            ticketId: { type: "string", description: "The internal UUID of the ticket to fetch logs for." }
+                            ticketId: { type: "string", description: "The ticket ID. Can be the human-readable ID (like #1080 or 1080) or the internal UUID." }
                         },
                         required: ["ticketId"]
                     }
@@ -119,7 +137,7 @@ const processChatbotQuery = async (messages, userTimezone = 'Asia/Kolkata') => {
                     parameters: {
                         type: "object",
                         properties: {
-                            ticketId: { type: "string", description: "The internal UUID of the ticket to check SLA for." }
+                            ticketId: { type: "string", description: "The ticket ID. Can be the human-readable ID (like #1080 or 1080) or the internal UUID." }
                         },
                         required: ["ticketId"]
                     }
@@ -157,11 +175,13 @@ const processChatbotQuery = async (messages, userTimezone = 'Asia/Kolkata') => {
                         const ticks = await prisma.ticket.findMany({ take: limit, orderBy: { createdAt: 'desc' }, select: { id: true, ticketId: true, header: true, status: true, circuitId: true } });
                         functionResult = JSON.stringify(ticks);
                     } else if (functionName === "fetchWorkLogs") {
-                        const logs = await workNoteService.getWorkNotes(args.ticketId);
+                        const uuid = await resolveTicketUUID(prisma, args.ticketId);
+                        const logs = await workNoteService.getWorkNotes(uuid);
                         functionResult = JSON.stringify(logs);
                     } else if (functionName === "checkSlaStatus") {
-                        const slaRec = await prisma.sLARecord.findUnique({ where: { ticketId: args.ticketId }});
-                        functionResult = JSON.stringify(slaRec || { error: 'No SLA Record found for this ticket.' });
+                        const uuid = await resolveTicketUUID(prisma, args.ticketId);
+                        const slaRec = await prisma.sLARecord.findUnique({ where: { ticketId: uuid }});
+                        functionResult = JSON.stringify(slaRec || { error: `No SLA Record found for ticket ${args.ticketId}.` });
                     }
                 } catch (e) {
                     functionResult = JSON.stringify({ error: e.message });
