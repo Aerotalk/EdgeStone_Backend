@@ -211,7 +211,47 @@ const processChatbotQuery = async (messages, userTimezone = 'Asia/Kolkata') => {
     }
 };
 
+/**
+ * Analyze ticket content to extract SLA start times automatically.
+ * @param {string} text - Concatenated email history/vendor notes.
+ * @returns {Promise<{ found: boolean, startDate: string, startTime: string }>}
+ */
+const extractSLAStartTimes = async (text) => {
+    if (!openai) {
+        throw new Error("OpenAI is disabled.");
+    }
+    
+    try {
+        const prompt = `
+        You are an intelligent SLA parser. Read the following ticket discussion thread.
+        Find the EXACT downtime start date and time mentioned by the vendor or system indicating when the issue began.
+        If found, format startDate as "DD MMM YYYY" (e.g. 10 Nov 2026).
+        Format startTime in 24-hour HH:MM format with " hrs" appended (e.g. "14:30 hrs").
+        If no such time is clearly found, return "found": false.
+        
+        Strictly respond with JSON:
+        { "found": boolean, "startDate": "DD MMM YYYY", "startTime": "HH:MM hrs" }
+        `;
+
+        const response = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [
+                { role: 'system', content: prompt },
+                { role: 'user', content: text }
+            ],
+            response_format: { type: "json_object" },
+            temperature: 0,
+        });
+
+        return JSON.parse(response.choices[0].message.content);
+    } catch (e) {
+        logger.error(\`🚨 [AI] Error extracting SLA start time: \${e.message}\`);
+        return { found: false };
+    }
+};
+
 module.exports = {
    analyzeEmailForCircuitId,
-   processChatbotQuery
+   processChatbotQuery,
+   extractSLAStartTimes
 };
