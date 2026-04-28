@@ -210,7 +210,7 @@ const processChatbotQuery = async (messages, userTimezone = 'Asia/Kolkata') => {
                         You are an AI generating a shift handover note for the next support agent.
                         Based on the following ticket history, write a clear, concise (3-4 bullet points max) summary.
                         Include:
-                        - Current Status
+                        - Ticket Context/Status
                         - What was done
                         - What the next shift agent needs to do.
                         Keep it extremely professional. Do not wrap in markdown quotes. Just pure text.
@@ -227,12 +227,27 @@ const processChatbotQuery = async (messages, userTimezone = 'Asia/Kolkata') => {
 
                         const handoverText = noteRes.choices[0].message.content;
                         
-                        // Automatically post it to the database
+                        // First, save it to the individual ticket's work logs for auditing
                         await workNoteService.createWorkNote(uuid, handoverText, null, 'EdgeStone AI (Handover)', true);
+                        
+                        // Second, POST it globally to the Global Sticky Note (Shift Handover)
+                        const currentGlobalNote = await prisma.globalNote.findUnique({ where: { id: 'global-note' } });
+                        const existingContent = currentGlobalNote ? currentGlobalNote.content : '';
+                        
+                        // Append the new ticket handover to the existing global note
+                        const newGlobalContent = existingContent 
+                            ? `${existingContent}\n\n--- [Ticket ${ticket.ticketId} Handover] ---\n${handoverText}` 
+                            : `--- [Ticket ${ticket.ticketId} Handover] ---\n${handoverText}`;
+
+                        await prisma.globalNote.upsert({
+                            where: { id: 'global-note' },
+                            update: { content: newGlobalContent, updatedBy: 'EdgeStone AI' },
+                            create: { id: 'global-note', content: newGlobalContent, updatedBy: 'EdgeStone AI' }
+                        });
                         
                         functionResult = JSON.stringify({
                             success: true,
-                            message: "Handover note generated and posted successfully.",
+                            message: "Handover note generated and posted to the Global Sticky Note.",
                             noteContent: handoverText
                         });
                     }
