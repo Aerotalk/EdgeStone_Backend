@@ -48,18 +48,46 @@ const getGraphAccessToken = async () => {
     return graphAccessToken;
 };
 
-const sendViaGraph = async (to, subject, body, html = null, isReply = false, replyToMsgId = null, extraHeaders = {}) => {
+const sendViaGraph = async (options) => {
+    const { to, cc, bcc, subject, text, body, html, inReplyTo, references, extraHeaders = {} } = options;
     const accessToken = await getGraphAccessToken();
     const userEmail = process.env.SENDER_EMAIL || process.env.MAIL_USER;
     
+    const formatRecipients = (recipients) => {
+        if (!recipients) return [];
+        const arr = Array.isArray(recipients) ? recipients : [recipients];
+        return arr.map(email => ({ emailAddress: { address: email } }));
+    };
+
     const message = {
         subject: subject,
         body: {
             contentType: html ? 'HTML' : 'Text',
-            content: html || body
+            content: html || text || body || ''
         },
-        toRecipients: [{ emailAddress: { address: to } }]
+        toRecipients: formatRecipients(to)
     };
+
+    if (cc) {
+        const ccRecips = formatRecipients(cc);
+        if (ccRecips.length > 0) message.ccRecipients = ccRecips;
+    }
+    if (bcc) {
+        const bccRecips = formatRecipients(bcc);
+        if (bccRecips.length > 0) message.bccRecipients = bccRecips;
+    }
+
+    const headers = [];
+    if (inReplyTo) headers.push({ name: 'In-Reply-To', value: inReplyTo });
+    if (references) headers.push({ name: 'References', value: references });
+    
+    Object.keys(extraHeaders).forEach(key => {
+        headers.push({ name: key, value: extraHeaders[key] });
+    });
+
+    if (headers.length > 0) {
+        message.internetMessageHeaders = headers;
+    }
 
     const headersUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/sendMail`;
     
@@ -72,23 +100,25 @@ const sendViaGraph = async (to, subject, body, html = null, isReply = false, rep
         body: JSON.stringify({ message, saveToSentItems: true })
     });
 
+    const toEmails = Array.isArray(to) ? to.join(', ') : to;
+
     if (response.ok || response.status === 202) {
-        logger.info(`[EMAIL] Sent email via Graph to ${to}`);
-        return { messageId: null, accepted: [to], response: '202 Accepted' };
+        logger.info(`[EMAIL] Sent email via Graph to ${toEmails}`);
+        return { messageId: null, accepted: Array.isArray(to) ? to : [to], response: '202 Accepted' };
     }
     
     const errBody = await response.json().catch(() => ({}));
     throw new Error(`SendMail failed: ${errBody.error?.message || response.status}`);
 };
 
-const sendEmail = async (to, subject, body, html = null, isReply = false, replyToMsgId = null, extraHeaders = {}) => {
-    return sendViaGraph(to, subject, body, html, isReply, replyToMsgId, extraHeaders);
+const sendEmail = async (options) => {
+    return sendViaGraph(options);
 };
 
-const sendAgentReplyEmail = async (to, subject, body, html = null, ticketId, originalMsgId = null) => {
-    logger.info(`[EMAIL] Sending Agent Reply to ${to} for Ticket ${ticketId}`);
-    const extraHeaders = originalMsgId ? { 'In-Reply-To': originalMsgId, 'References': originalMsgId } : {};
-    return sendViaGraph(to, subject, body, html, !!originalMsgId, originalMsgId, extraHeaders);
+const sendAgentReplyEmail = async (options) => {
+    const toEmails = Array.isArray(options.to) ? options.to.join(', ') : options.to;
+    logger.info(`[EMAIL] Sending Agent Reply to ${toEmails} for Subject: ${options.subject}`);
+    return sendViaGraph(options);
 };
 
 const markEmailAsRead = async (messageId, accessToken) => {
