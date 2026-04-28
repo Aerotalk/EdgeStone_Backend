@@ -188,10 +188,12 @@ const appendVendorReplyToTicket = async (ticket, emailData) => {
     const { from, fromName, body, html, date } = emailData;
     const emailReceivedDate = date ? new Date(date) : new Date();
 
-    logger.info(`🎟️ [TICKET] 📩 Appending vendor reply to existing Ticket ${ticket.ticketId} from ${from}`);
+    logger.info(`📝 [TICKET] 📥 Appending vendor reply to existing Ticket ${ticket.ticketId} from ${from}`);
+
+    const replyText = stripHtml(body || html) || '(No Content)';
 
     const reply = await TicketModel.addReply(ticket.id, {
-        text: stripHtml(body || html) || '(No Content)',
+        text: replyText,
         time: emailReceivedDate.toLocaleTimeString('en-US', {
             hour: '2-digit',
             minute: '2-digit',
@@ -223,9 +225,21 @@ const appendVendorReplyToTicket = async (ticket, emailData) => {
 const createTicketFromEmail = async (emailData) => {
     const { from, fromName, subject, body, date, messageId, inReplyTo, references } = emailData;
 
-    logger.debug(`🐞 🎟️ [TICKET] 📥 Processing incoming email from: ${from} | Subject: ${subject}`);
+    logger.debug(`📝 [TICKET] 📥 Processing incoming email from: ${from} | Subject: ${subject}`);
 
     try {
+        const prisma = require('../models/index');
+        
+        // --- DUPLICATE PREVENTION ---
+        if (messageId) {
+            // Check if a Ticket with this incoming messageId already exists
+            const duplicateTicket = await prisma.ticket.findFirst({ where: { messageId } });
+            if (duplicateTicket) {
+                logger.warn(`🚨 [TICKET] Duplicate email detected. Ticket already exists for messageId: ${messageId}. Skipping.`);
+                return duplicateTicket;
+            }
+        }
+
         // 0. Check if this email is a reply to an existing ticket
         const existingTicket = await findExistingTicketForReply(inReplyTo, references, subject);
         if (existingTicket) {
@@ -279,7 +293,6 @@ const createTicketFromEmail = async (emailData) => {
         let circuitUUID = null;
         let foundLocation = 'none';
 
-        const prisma = require('../models/index');
         const aiService = require('./aiService');
         
         try {
