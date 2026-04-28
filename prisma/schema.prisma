@@ -18,6 +18,7 @@ model User {
   createdOn    String // Storing as string to match frontend display format e.g., "10 Jan 2024"
   access       Json // JSON object: { dashboard: boolean, sla: boolean, vendor: boolean, superAdmin: boolean, client: boolean }
   role         String @default("Agent") // Helper field
+  profilePicture String? // URL for profile picture
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -37,6 +38,7 @@ model Agent {
   emails       String[] // Secondary contact emails
   isSuperAdmin Boolean  @default(false) // Kept for legacy/fallback
   role         String   @default("Support crew") // "Super admin", "Manager", "Support crew"
+  profilePicture String? // URL for profile picture
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

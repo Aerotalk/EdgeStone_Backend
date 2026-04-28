@@ -40,7 +40,50 @@ const getMe = async (req, res, next) => {
     }
 };
 
+const updateProfilePicture = async (req, res, next) => {
+    try {
+        const { profilePicture } = req.body;
+        const userId = req.user.id;
+        
+        logger.debug(`🐞 👤 [AUTH] 📝 Request received: Update profile picture for ${userId}`);
+
+        if (!profilePicture) {
+            return res.status(400).json({ error: 'profilePicture is required' });
+        }
+
+        const prisma = require('../models/index');
+        
+        let updatedUser;
+        try {
+            const agent = await prisma.agent.findUnique({ where: { id: userId } });
+            if (agent) {
+                updatedUser = await prisma.agent.update({
+                    where: { id: userId },
+                    data: { profilePicture }
+                });
+            } else {
+                updatedUser = await prisma.user.update({
+                    where: { id: userId },
+                    data: { profilePicture }
+                });
+            }
+        } catch (dbError) {
+            logger.error(`❌ [AUTH] Database error updating profile picture: ${dbError.message}`);
+            return res.status(500).json({ error: 'Failed to update profile picture in database' });
+        }
+
+        res.json({
+            success: true,
+            message: 'Profile picture updated successfully',
+            profilePicture: updatedUser.profilePicture
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 module.exports = {
     login,
     getMe,
+    updateProfilePicture,
 };

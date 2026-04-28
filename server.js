@@ -22,6 +22,7 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
+const path = require('path');
 const { errorHandler } = require('./middlewares/errorHandler');
 const logger = require('./utils/logger');
 
@@ -75,6 +76,9 @@ app.use(cors({
 app.use(helmet());
 // Stream morgan logs to winston
 app.use(morgan('combined', { stream: { write: message => logger.info(message.trim()) } }));
+
+// Static file serving for uploads
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Routes (Placeholders)
 // Health Check Route
@@ -165,6 +169,13 @@ try {
     logger.debug('🤖 AI Support routes registered');
 } catch (error) {
     logger.error('❌ Failed to load AI Routes:', error);
+}
+
+try {
+    app.use('/api/upload', require('./routes/uploadRoutes'));
+    logger.debug('📁 Upload routes registered');
+} catch (error) {
+    logger.error('❌ Failed to load Upload Routes:', error);
 }
 
 // Error Handler
