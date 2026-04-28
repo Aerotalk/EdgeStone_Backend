@@ -40,7 +40,7 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
     logger.info(`🎟️ [TICKET] 🔄 replyToVendor: Ticket ${ticketId} | Agent: ${agentName}`);
 
     try {
-        const { message, to, cc, bcc, subject } = emailData;
+        const { message, to, cc, bcc, subject, htmlContent } = emailData;
 
         // 1. Fetch the ticket
         let ticket;
@@ -111,14 +111,15 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
         // Provide the ticket's messageId so the email threads properly on the vendor side
         const threadMessageId = ticket.messageId || null;
 
-        const sentResult = await emailService.sendAgentReplyEmail({
-            to: vendorContactEmails,
-            cc: cc || [],
-            bcc: bcc || [],
-            subject: subject ? 
-                (subject.includes(`[${ticket.ticketId}`) ? subject : `${subject} [${ticket.ticketId}-V]`) : 
-                `Vendor Support Request: ${ticket.header} [${ticket.ticketId}-V]`,
-            html: `
+        const emailHtml = htmlContent
+            ? `
+                <div style="font-family: Arial, sans-serif; margin-bottom: 16px;">
+                    <p>Hello Vendor Support Team,</p>
+                    <p>Regarding circuit/reference <strong>${ticket.circuitId || ticket.ticketId}</strong>:</p>
+                </div>
+                ${htmlContent}
+              `
+            : `
                 <div style="font-family: Arial, sans-serif;">
                     <p>Hello Vendor Support Team,</p>
                     <p>Regarding circuit/reference <strong>${ticket.circuitId || ticket.ticketId}</strong>:</p>
@@ -127,7 +128,16 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
                     <hr/>
                     <p style="font-size: 12px; color: #666;">${agentName}<br/>EdgeStone NOC / Partner Support</p>
                 </div>
-            `,
+            `;
+
+        const sentResult = await emailService.sendAgentReplyEmail({
+            to: vendorContactEmails,
+            cc: cc || [],
+            bcc: bcc || [],
+            subject: subject ? 
+                (subject.includes(`[${ticket.ticketId}`) ? subject : `${subject} [${ticket.ticketId}-V]`) : 
+                `Vendor Support Request: ${ticket.header} [${ticket.ticketId}-V]`,
+            html: emailHtml,
             text: message,
             inReplyTo: threadMessageId, 
             references: threadMessageId 
