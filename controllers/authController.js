@@ -14,6 +14,7 @@ const login = async (req, res, next) => {
             email: user.email,
             role: user.role,
             access: user.access,
+            profilePicture: user.profilePicture,
             token
         });
     } catch (error) {
