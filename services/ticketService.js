@@ -332,6 +332,21 @@ const createTicketFromEmail = async (emailData) => {
         // 🛡️ CRITICAL GATE: If no circuit matches the DB, absolutely DO NOT create a ticket!
         if (!circuitId) {
             logger.warn(`⚠️ 🎟️ [TICKET] 🚫 DROPPED EMAIL: Subject "${subject}" from ${from} does not contain any recognized Circuit ID natively or via AI. Ticket will NOT be created.`);
+            
+            // Send AI rejection email if they are a valid Client
+            if (clientId) {
+                logger.info(`🤖 🎟️ [TICKET] Sending AI missing-circuit rejection email to valid client: ${from}`);
+                const aiReplyText = await aiService.generateMissingCircuitIdReply(fromName || from, subject, body);
+                const emailService = require('./emailService');
+                
+                emailService.sendEmail({
+                    to: from,
+                    subject: `Re: ${subject || 'Support Request'}`,
+                    text: aiReplyText,
+                    html: `<div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">${aiReplyText.replace(/\n/g, '<br>')}</div>`
+                }).catch(err => logger.error(`🚨 [TICKET] Failed to send missing-circuit rejection email: ${err.message}`));
+            }
+            
             return null;
         }
 

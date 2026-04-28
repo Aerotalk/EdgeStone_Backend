@@ -250,8 +250,52 @@ const extractSLAStartTimes = async (text) => {
     }
 };
 
+/**
+ * Generate a polite response using OpenAI to ask a customer for their missing Circuit ID.
+ * @param {string} fromName 
+ * @param {string} subject 
+ * @param {string} body 
+ * @returns {Promise<string>}
+ */
+const generateMissingCircuitIdReply = async (fromName, subject, body) => {
+    if (!openai) {
+        return `Hello ${fromName || 'Customer'},\n\nWe received your request but couldn't proceed because a valid Circuit ID was missing. Please reply with your Circuit ID so we can assist you.\n\nThank you,\nEdgeStone Support`;
+    }
+    
+    try {
+        const prompt = `
+        You are a polite customer support AI for EdgeStone ticketing system.
+        A valid customer has sent an email requesting support, but they forgot to include their Circuit ID (which is strictly required to open a ticket).
+        
+        Write a short, professional, and extremely polite email reply back to the customer.
+        The reply should:
+        1. Acknowledge their issue gently.
+        2. Politely apologize and inform them that we cannot proceed without a valid Circuit ID.
+        3. Ask them to reply with a valid Circuit ID to successfully raise the support ticket.
+        4. Sign off as "EdgeStone AI Support Router".
+        
+        IMPORTANT: Return ONLY the plain text email body. Use standard newlines (not HTML). Do not include subject lines or metadata.
+        `;
+
+        const response = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [
+                { role: 'system', content: prompt },
+                { role: 'user', content: `Customer Name: ${fromName || 'Customer'}\nSubject: ${subject}\nEmail Body: ${body}` }
+            ],
+            temperature: 0.7,
+        });
+
+        return response.choices[0].message.content.trim();
+    } catch (e) {
+        logger.error(`🚨 [AI] Error generating polite reply: ${e.message}`);
+        return `Hello ${fromName || 'Customer'},\n\nWe received your request but couldn't proceed because a valid Circuit ID was missing. Please reply with your Circuit ID so we can assist you.\n\nThank you,\nEdgeStone Support`;
+    }
+};
+
 module.exports = {
    analyzeEmailForCircuitId,
    processChatbotQuery,
-   extractSLAStartTimes
+   extractSLAStartTimes,
+   generateMissingCircuitIdReply
 };
