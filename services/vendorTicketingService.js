@@ -41,6 +41,8 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
 
     try {
         const { message, to, cc, bcc, subject, htmlContent } = emailData;
+        logger.info(`🎟️ [TICKET] DEBUG emailData keys: ${Object.keys(emailData).join(', ')}`);
+        logger.info(`🎟️ [TICKET] DEBUG htmlContent exists? ${!!htmlContent}`);
 
         // 1. Fetch the ticket
         let ticket;
