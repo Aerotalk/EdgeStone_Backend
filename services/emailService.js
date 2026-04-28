@@ -78,11 +78,19 @@ const sendViaGraph = async (options) => {
     }
 
     const headers = [];
-    if (inReplyTo) headers.push({ name: 'In-Reply-To', value: inReplyTo });
-    if (references) headers.push({ name: 'References', value: references });
+    
+    const addHeader = (name, value) => {
+        if (!name.toLowerCase().startsWith('x-')) {
+            name = `X-${name}`;
+        }
+        headers.push({ name, value });
+    };
+
+    if (inReplyTo) addHeader('In-Reply-To', inReplyTo);
+    if (references) addHeader('References', references);
     
     Object.keys(extraHeaders).forEach(key => {
-        headers.push({ name: key, value: extraHeaders[key] });
+        addHeader(key, extraHeaders[key]);
     });
 
     if (headers.length > 0) {
