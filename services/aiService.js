@@ -142,6 +142,20 @@ const processChatbotQuery = async (messages, userTimezone = 'Asia/Kolkata') => {
                         required: ["ticketId"]
                     }
                 }
+            },
+            {
+                type: "function",
+                function: {
+                    name: "generateAndPostHandoverNote",
+                    description: "Automatically compile a summary of the ticket's status, generate a professional handover note, and instantly post it to the ticket's work logs.",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            ticketId: { type: "string", description: "The ticket ID. Can be the human-readable ID (like #1080 or 1080) or the internal UUID." }
+                        },
+                        required: ["ticketId"]
+                    }
+                }
             }
         ];
 
@@ -182,6 +196,45 @@ const processChatbotQuery = async (messages, userTimezone = 'Asia/Kolkata') => {
                         const uuid = await resolveTicketUUID(prisma, args.ticketId);
                         const slaRec = await prisma.sLARecord.findUnique({ where: { ticketId: uuid }});
                         functionResult = JSON.stringify(slaRec || { error: `No SLA Record found for ticket ${args.ticketId}.` });
+                    } else if (functionName === "generateAndPostHandoverNote") {
+                        const uuid = await resolveTicketUUID(prisma, args.ticketId);
+                        const ticket = await prisma.ticket.findUnique({ where: { id: uuid }, include: { replies: true }});
+                        const workNotes = await workNoteService.getWorkNotes(uuid);
+                        
+                        let contextText = `TICKET START:\nSubject: ${ticket.header}\nBody: ${ticket.text}\n\nREPLIES:\n`;
+                        ticket.replies.forEach(r => contextText += `[${r.author}]: ${r.text}\n`);
+                        contextText += `\nWORK NOTES:\n`;
+                        workNotes.forEach(w => contextText += `[${w.author}]: ${w.text}\n`);
+
+                        const handoverPrompt = `
+                        You are an AI generating a shift handover note for the next support agent.
+                        Based on the following ticket history, write a clear, concise (3-4 bullet points max) summary.
+                        Include:
+                        - Current Status
+                        - What was done
+                        - What the next shift agent needs to do.
+                        Keep it extremely professional. Do not wrap in markdown quotes. Just pure text.
+                        `;
+
+                        const noteRes = await openai.chat.completions.create({
+                            model: "gpt-4o-mini",
+                            messages: [
+                                { role: "system", content: handoverPrompt },
+                                { role: "user", content: contextText }
+                            ],
+                            temperature: 0.3
+                        });
+
+                        const handoverText = noteRes.choices[0].message.content;
+                        
+                        // Automatically post it to the database
+                        await workNoteService.createWorkNote(uuid, handoverText, null, 'EdgeStone AI (Handover)', true);
+                        
+                        functionResult = JSON.stringify({
+                            success: true,
+                            message: "Handover note generated and posted successfully.",
+                            noteContent: handoverText
+                        });
                     }
                 } catch (e) {
                     functionResult = JSON.stringify({ error: e.message });
