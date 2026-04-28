@@ -31,7 +31,6 @@ const updateTicket = async (req, res, next) => {
         const { circuitId, priority, status } = req.body;
 
         logger.debug(`🐞 🎟️ [TICKET] 📝 Request received: updateTicket for ticket ${id}`);
-        logger.debug(`🐞 🎟️ [TICKET] Updates: circuitId=${circuitId}, priority=${priority}, status=${status}`);
 
         const agentName = req.user ? req.user.name : 'Agent';
         const agentEmail = req.user ? req.user.email : 'support@edgestone.in';

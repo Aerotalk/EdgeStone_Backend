@@ -205,6 +205,14 @@ model ActivityLog {
   createdAt DateTime @default(now())
 }
 
+// --- Global Note Model (Shift Handover) ---
+model GlobalNote {
+  id        String   @id @default("global-note")
+  content   String   @db.Text
+  updatedBy String   @default("System")
+  updatedAt DateTime @updatedAt
+}
+
 // --- Circuit Management Models ---
 
 model Circuit {

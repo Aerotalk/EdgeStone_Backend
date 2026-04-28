@@ -180,6 +180,13 @@ try {
     logger.error('❌ Failed to load Upload Routes:', error);
 }
 
+try {
+    app.use('/api/global-note', require('./routes/globalNoteRoutes'));
+    logger.debug('📝 Global Note routes registered');
+} catch (error) {
+    logger.error('❌ Failed to load Global Note Routes:', error);
+}
+
 // Error Handler
 app.use(errorHandler);
 
