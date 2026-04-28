@@ -219,6 +219,48 @@ const appendVendorReplyToTicket = async (ticket, emailData) => {
     });
 
     logger.info(`🎟️ [TICKET] ✅ Vendor reply appended to Ticket ${ticket.ticketId}`);
+    
+    // --- AUTOMATIC AI SLA START ON VENDOR REPLY ---
+    try {
+        const prisma = require('../models/index');
+        // Check if SLA already exists for this ticket
+        const existingSLA = await prisma.sLARecord.findUnique({ where: { ticketId: ticket.id }});
+        
+        if (!existingSLA) {
+            logger.info(`🤖 🎟️ [TICKET] No SLA found. Asking AI to extract SLA start time from Vendor Reply for Ticket ${ticket.ticketId}...`);
+            const aiService = require('./aiService');
+            
+            // Extract from the vendor's reply text
+            const aiResult = await aiService.extractSLAStartTimes(replyText);
+            
+            let startDateStr, startTimeStr;
+            
+            if (aiResult && aiResult.found) {
+                logger.info(`🧠 🎟️ [TICKET] AI successfully extracted SLA start time: ${aiResult.startDate} ${aiResult.startTime}`);
+                startDateStr = aiResult.startDate;
+                startTimeStr = aiResult.startTime;
+            } else {
+                logger.info(`🤖 🎟️ [TICKET] AI couldn't find an explicit time in the vendor's reply. Falling back to the vendor reply's timestamp.`);
+                startDateStr = emailReceivedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+                startTimeStr = emailReceivedDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' hrs';
+            }
+            
+            await prisma.sLARecord.create({
+                data: {
+                    ticketId: ticket.id,
+                    startDate: startDateStr,
+                    startTime: startTimeStr,
+                    status: 'Safe',
+                    compensation: '-',
+                    statusReason: aiResult && aiResult.found ? 'AI extracted time from Vendor' : 'Fallback to Vendor reply time'
+                }
+            });
+            logger.info(`🎟️ [TICKET] ✅ SLA Record dynamically created on Vendor Reply for Ticket ${ticket.ticketId}`);
+        }
+    } catch (slaErr) {
+         logger.error(`🚨 🎟️ [TICKET] ❌ Failed to automatically start SLA Record on Vendor Reply: ${slaErr.message}`);
+    }
+
     return reply;
 };
 
@@ -440,28 +482,8 @@ const createTicketFromEmail = async (emailData) => {
 
         logger.info(`🎟️ [TICKET] ✅ ${ticketType} Ticket Created Successfully: ${ticket.ticketId} at ${ticket.receivedTime}`);
 
-        // --- NEW: Automatically map SLA on Ticket Creation ---
-        try {
-            const slaStart = new Date(emailReceivedDate.getTime() + 60000); // starts 1 min after
-            const startDateStr = slaStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-            const startTimeStr = slaStart.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' hrs';
-            
-            await prisma.sLARecord.create({
-                data: {
-                    ticketId: ticket.id,
-                    startDate: startDateStr,
-                    startTime: startTimeStr,
-                    status: 'Safe',
-                    compensation: '-',
-                    statusReason: ''
-                }
-            });
-            logger.info(`🎟️ [TICKET] ✅ SLA Record mapped dynamically for Ticket ${ticket.ticketId}`);
-        } catch (slaErr) {
-            logger.error(`🚨 🎟️ [TICKET] ❌ Failed to automatically start SLA Record on Ticket open: ${slaErr.message}`);
-        }
-        // --------------------------------------------------------
-
+        // Note: SLA creation has been moved to appendVendorReplyToTicket 
+        // to strictly enforce that SLA only begins when the Vendor replies.
         // 6. Send Auto-Reply with 5-second delay (Only for Clients)
         if (ticketType === 'Vendor') {
             logger.info(`🎟️ [TICKET] ⏰ Skipping auto-reply for Vendor ticket ${ticket.ticketId} to prevent infinite automated loops.`);
