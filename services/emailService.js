@@ -9,6 +9,7 @@ const logger = require('../utils/logger');
 // ─────────────────────────────────────────────────────────────────────────────
 let graphAccessToken = null;
 let tokenExpiresAt = 0;
+let isPolling = false;
 let graphPollInterval = null;
 
 // In-memory set of Graph message IDs already processed this session.
@@ -45,207 +46,19 @@ const getGraphAccessToken = async () => {
 
     const result = await response.json();
     if (!response.ok) {
-        throw new Error(`Failed to get Graph Token: ${result.error_description || result.error}`);
-    }
-
-    graphAccessToken = result.access_token;
-    // Expire the cache 5 minutes before the actual token expiry
-    tokenExpiresAt = Date.now() + ((result.expires_in - 300) * 1000);
-
-    logger.info('📧 [EMAIL] 🔑 MS Graph Access Token refreshed successfully.');
-    return graphAccessToken;
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// sendViaGraph — Internal helper
-// Sends an email via Microsoft Graph API /sendMail endpoint.
-// This replaces nodemailer SMTP which is blocked by Azure AD Security Defaults.
-// Supports threading via In-Reply-To and References headers.
-// ─────────────────────────────────────────────────────────────────────────────
-const sendViaGraph = async ({ to, cc, bcc, subject, html, text, inReplyTo, references }) => {
-    const senderEmail = process.env.SENDER_EMAIL || process.env.MAIL_USER;
-    if (!senderEmail) {
-        throw new Error('sendViaGraph: SENDER_EMAIL or MAIL_USER must be set in environment.');
-    }
-
-    const accessToken = await getGraphAccessToken();
-
-    const toArray = Array.isArray(to) ? to : [to].filter(Boolean);
-    const ccArray = Array.isArray(cc) ? cc : (cc ? [cc] : []);
-    const bccArray = Array.isArray(bcc) ? bcc : (bcc ? [bcc] : []);
-
-    // Extract Base64 images and convert them to inline CID attachments for MS Graph
-    let finalHtml = html;
-    let attachments = [];
-    if (finalHtml) {
-        let imgCount = 0;
-        finalHtml = finalHtml.replace(/(["'])(data:(image\/[^;]+);base64,([^"']+))\1/gi, (match, quote, fullDataUrl, mimeType, base64Data) => {
-            imgCount++;
-            const contentId = `sig-img-${Date.now()}-${imgCount}`;
-            const extension = mimeType.split('/')[1] || 'png';
-            const filename = `signature-image-${imgCount}.${extension}`;
-
-            attachments.push({
-                "@odata.type": "#microsoft.graph.fileAttachment",
-                "name": filename,
-                "contentType": mimeType,
-                "contentBytes": base64Data,
-                "isInline": true,
-                "contentId": contentId
-            });
-
-            return `${quote}cid:${contentId}${quote}`;
-        });
-    }
-
-    // Build the Graph API message body
-    const message = {
-        subject,
-        body: {
-            contentType: finalHtml ? 'HTML' : 'Text',
-            content: finalHtml || text || '(No content)',
-        },
-        toRecipients: toArray.map(address => ({ emailAddress: { address } })),
-        ccRecipients: ccArray.map(address => ({ emailAddress: { address } })),
-        bccRecipients: bccArray.map(address => ({ emailAddress: { address } })),
-        from: {
-            emailAddress: {
-                address: senderEmail,
-                name: 'EdgeStone Support'
-            }
-        },
-    };
-
-    if (attachments.length > 0) {
-        message.hasAttachments = true;
-        message.attachments = attachments;
-    }
-
-    // NOTE: Microsoft Graph API only allows custom X- prefixed headers in internetMessageHeaders.
-    // Standard RFC 5322 headers like 'In-Reply-To' and 'References' are BLOCKED and will throw:
-    //   "The internet message header name should start with 'x-' or 'X-'"
-    // Graph manages email threading internally via its own conversationId system.
-    // We store our own tracking headers using X- prefix for internal reference only.
-    if (inReplyTo || references) {
-        message.internetMessageHeaders = [];
-        if (inReplyTo) {
-            message.internetMessageHeaders.push({ name: 'X-Ticket-In-Reply-To', value: inReplyTo });
-            logger.info(`📧 [EMAIL] 🧵 sendViaGraph: Storing In-Reply-To as X-Ticket-In-Reply-To: ${inReplyTo}`);
+            logger.error([EMAIL] Graph Mail API Error);
+            isPolling = false;
+            return;
         }
-        if (references) {
-            message.internetMessageHeaders.push({ name: 'X-Ticket-References', value: references });
-        } else if (inReplyTo) {
-            message.internetMessageHeaders.push({ name: 'X-Ticket-References', value: inReplyTo });
-        }
-    }
-
-    const sendUrl = `https://graph.microsoft.com/v1.0/users/${senderEmail}/sendMail`;
-
-    const response = await fetch(sendUrl, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ message, saveToSentItems: true })
-    });
-
-    if (response.status === 202) {
-        // 202 Accepted is the expected success response for /sendMail
-        logger.info(`📧 [EMAIL] ✅ sendViaGraph: Email sent successfully via Graph API | to: ${to} | subject: "${subject}"`);
-        // Return a mock info object similar to nodemailer for compatibility
-        return { messageId: null, accepted: [to], response: '202 Accepted' };
-    }
-
-    // Handle errors
-    let errorBody = {};
-    try {
-        errorBody = await response.json();
-    } catch (_) { /* ignore parse error */ }
-
-    const errMsg = errorBody.error?.message || `HTTP ${response.status}`;
-    throw new Error(`sendViaGraph: Graph API /sendMail failed: ${errMsg}`);
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// sendEmail — Auto-reply / system notification sender (public API)
-// Uses Graph API. No longer routes through SMTP.
-// ─────────────────────────────────────────────────────────────────────────────
-const sendEmail = async ({ to, cc, bcc, subject, html, text, inReplyTo, references }) => {
-    // Input validation
-    if (!to || (Array.isArray(to) && to.length === 0)) {
-        throw new Error(`sendEmail: invalid "to" address: ${to}`);
-    }
-    if (!subject || !subject.trim()) {
-        throw new Error('sendEmail: subject cannot be empty');
-    }
-    if (!html && !text) {
-        logger.warn('⚠️ 📧 [EMAIL] ⚠️ sendEmail called with no html or text body — sending anyway');
-        text = '(No content)';
-    }
-
-    // Sanitise subject — strip control characters that can cause header injection
-    const safeSubject = subject.replace(/[\r\n\t]/g, ' ').trim();
-    logger.info(`📧 [EMAIL] 📧 sendEmail: Routing auto-reply via Graph API | to: ${Array.isArray(to)? to.join(', ') : to} | subject: "${safeSubject}"`);
-
-    return sendViaGraph({ to, cc, bcc, subject: safeSubject, html, text, inReplyTo, references });
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// sendAgentReplyEmail — Agent reply sender (public API)
-// Uses Graph API. No longer routes through SMTP.
-// ─────────────────────────────────────────────────────────────────────────────
-const sendAgentReplyEmail = async ({ to, cc, bcc, subject, html, text, inReplyTo, references }) => {
-    if (!to || (Array.isArray(to) && to.length === 0)) {
-        throw new Error(`sendAgentReplyEmail: invalid "to" address: ${to}`);
-    }
-    if (!subject || !subject.trim()) {
-        throw new Error('sendAgentReplyEmail: subject cannot be empty');
-    }
-
-    const safeSubject = subject.replace(/[\r\n\t]/g, ' ').trim();
-    logger.info(`📧 [EMAIL] 📧 sendAgentReplyEmail: Routing agent reply via Graph API | to: ${Array.isArray(to)? to.join(', ') : to} | subject: "${safeSubject}"`);
-
-    return sendViaGraph({ to, cc, bcc, subject: safeSubject, html, text, inReplyTo, references });
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// markEmailAsRead — Marks a Graph email as read so it's not re-processed
-// ─────────────────────────────────────────────────────────────────────────────
-const markEmailAsRead = async (messageId, accessToken) => {
-    const userEmail = process.env.SENDER_EMAIL || process.env.MAIL_USER;
-    const patchUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/messages/${messageId}`;
-    try {
-        const res = await fetch(patchUrl, {
-            method: 'PATCH',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ isRead: true })
-        });
-        if (!res.ok) {
-            const err = await res.text();
-            logger.error(`🚨 📧 [EMAIL] ❌ Failed to mark message ${messageId} as read: ${err}`);
-        } else {
-            logger.info(`📧 [EMAIL] ✅ Marked message ${messageId} as read`);
-        }
-    } catch (e) {
-        logger.error(`🚨 📧 [EMAIL] ❌ Error marking message as read: ${e.message}`);
-    }
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// fetchNewGraphEmails — Polls the Graph API inbox for unread messages
-// Runs every 30 seconds via startImapListener()
-// ─────────────────────────────────────────────────────────────────────────────
-const fetchNewGraphEmails = async () => {
+    
+    isPolling = true;
     const userEmail = process.env.SENDER_EMAIL || process.env.MAIL_USER;
     let accessToken;
     try {
         accessToken = await getGraphAccessToken();
     } catch (err) {
         logger.error(`🚨 📧 [EMAIL] ❌ MS Graph Token Error: ${err.message}`);
+        isPolling = false;
         return;
     }
 
@@ -261,12 +74,14 @@ const fetchNewGraphEmails = async () => {
 
         const result = await response.json();
         if (!response.ok) {
-            logger.error(`🚨 📧 [EMAIL] ❌ Graph Mail API Error: ${result.error?.message || JSON.stringify(result)}`);
+            logger.error([EMAIL] Graph Mail API Error);
+            isPolling = false;
             return;
         }
 
         const messages = result.value || [];
         if (messages.length === 0) {
+            isPolling = false;
             return;
         }
 
@@ -353,6 +168,8 @@ const fetchNewGraphEmails = async () => {
 
     } catch (err) {
         logger.error(`🚨 📧 [EMAIL] ❌ Graph Mail Fetch Request Error: ${err.message}`);
+    } finally {
+        isPolling = false;
     }
 };
 
