@@ -38,7 +38,8 @@ const uploadProfilePictureHandler = (req, res) => {
     }
     
     // Construct the public URL
-    const fileUrl = `${req.protocol}://${req.get('host')}/uploads/profiles/${req.file.filename}`;
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    const fileUrl = `${protocol}://${req.get('host')}/uploads/profiles/${req.file.filename}`;
     
     res.status(200).json({
         success: true,
@@ -52,7 +53,8 @@ const uploadDocumentHandler = (req, res) => {
         return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
     
-    const fileUrl = `${req.protocol}://${req.get('host')}/uploads/documents/${req.file.filename}`;
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    const fileUrl = `${protocol}://${req.get('host')}/uploads/documents/${req.file.filename}`;
     
     res.status(200).json({
         success: true,

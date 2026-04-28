@@ -73,7 +73,9 @@ app.use(cors({
     },
     credentials: true // If we need cookies/sessions cross-origin
 }));
-app.use(helmet());
+app.use(helmet({
+    crossOriginResourcePolicy: false,
+}));
 // Stream morgan logs to winston
 app.use(morgan('combined', { stream: { write: message => logger.info(message.trim()) } }));
 
