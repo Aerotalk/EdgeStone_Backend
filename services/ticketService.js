@@ -352,26 +352,25 @@ const createTicketFromEmail = async (emailData) => {
 
         // 💡 NEW TICKET AI RULE: Circuit ID found in body but NOT subject -> create ticket but send a warning back
         if (foundLocation === 'body') {
-             logger.info(`⚠️ 🎟️ [TICKET] AI detected Circuit ID (${circuitId}) only in the body. Triggering warning email.`);
-             const emailService = require('./emailService');
+             logger.info(`⚠️ 🎟️ [TICKET] AI detected Circuit ID (${circuitId}) only in the body. Triggering AI warning email.`);
              
-             // Fire and forget warning email
-             emailService.sendEmail({
-                to: from,
-                subject: `Re: ${subject || 'Your Support Request'}`,
-                html: `
-                    <div style="font-family: Arial, sans-serif; color: #333;">
-                        <p>Hello,</p>
-                        <p>We have successfully processed your request and created a ticket based on the Circuit ID located in the body of your email.</p>
-                        <p><strong>Please mention the Circuit ID in the subject line from next time</strong> to ensure faster and perfectly accurate routing.</p>
-                        <br/>
-                        <p>Thank you.</p>
-                        <hr/>
-                        <p style="font-size: 12px; color: #666;">EdgeStone AI Support Router</p>
-                    </div>
-                `,
-                text: `Hello, We have processed your request based on the Circuit ID in your email body. Please mention the Circuit ID in the subject line from next time. Thank you.`,
-             }).catch(err => logger.error(`🚨 [TICKET] Failed to send AI warning email: ${err.message}`));
+             // Wrap in an async IIFE to fire-and-forget without blocking ticket creation
+             (async () => {
+                 try {
+                     const aiWarningText = await aiService.generateBodyCircuitIdWarning(fromName || from, circuitId);
+                     const emailService = require('./emailService');
+                     
+                     await emailService.sendEmail({
+                        to: from,
+                        subject: `Re: ${subject || 'Your Support Request'}`,
+                        html: `<div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">${aiWarningText.replace(/\n/g, '<br>')}</div>`,
+                        text: aiWarningText,
+                     });
+                     logger.info(`🤖 🎟️ [TICKET] Successfully sent AI warning email about putting Circuit ID in subject to ${from}`);
+                 } catch (err) {
+                     logger.error(`🚨 [TICKET] Failed to send AI warning email: ${err.message}`);
+                 }
+             })();
         }
 
         // 3. Generate ID

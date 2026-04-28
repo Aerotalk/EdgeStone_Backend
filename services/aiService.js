@@ -293,9 +293,52 @@ const generateMissingCircuitIdReply = async (fromName, subject, body) => {
     }
 };
 
+/**
+ * Generate a polite response using OpenAI to warn a customer to put their Circuit ID in the subject line next time.
+ * @param {string} fromName 
+ * @param {string} circuitId 
+ * @returns {Promise<string>}
+ */
+const generateBodyCircuitIdWarning = async (fromName, circuitId) => {
+    if (!openai) {
+        return `Hello ${fromName || 'Customer'},\n\nWe have successfully processed your request and created a ticket based on the Circuit ID (${circuitId}) located in the body of your email.\n\nPlease mention the Circuit ID in the subject line from next time to ensure faster and perfectly accurate routing.\n\nThank you,\nEdgeStone Support`;
+    }
+    
+    try {
+        const prompt = `
+        You are a polite customer support AI for EdgeStone ticketing system.
+        A valid customer has sent an email requesting support. They included their Circuit ID (${circuitId}), but they put it in the BODY of the email instead of the SUBJECT line.
+        We have successfully created the ticket anyway, but we need to gently remind them to use the subject line next time.
+        
+        Write a short, professional, and extremely polite email reply back to the customer.
+        The reply should:
+        1. Acknowledge their issue and confirm that their ticket HAS been created successfully using the Circuit ID (${circuitId}) found in the email body.
+        2. Politely request that they mention the Circuit ID in the SUBJECT line for all future requests to ensure faster routing.
+        3. Sign off as "EdgeStone AI Support Router".
+        
+        IMPORTANT: Return ONLY the plain text email body. Use standard newlines (not HTML). Do not include subject lines or metadata.
+        `;
+
+        const response = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [
+                { role: 'system', content: prompt },
+                { role: 'user', content: `Customer Name: ${fromName || 'Customer'}` }
+            ],
+            temperature: 0.7,
+        });
+
+        return response.choices[0].message.content.trim();
+    } catch (e) {
+        logger.error(`🚨 [AI] Error generating warning reply: ${e.message}`);
+        return `Hello ${fromName || 'Customer'},\n\nWe have successfully processed your request and created a ticket based on the Circuit ID (${circuitId}) located in the body of your email.\n\nPlease mention the Circuit ID in the subject line from next time to ensure faster and perfectly accurate routing.\n\nThank you,\nEdgeStone Support`;
+    }
+};
+
 module.exports = {
    analyzeEmailForCircuitId,
    processChatbotQuery,
    extractSLAStartTimes,
-   generateMissingCircuitIdReply
+   generateMissingCircuitIdReply,
+   generateBodyCircuitIdWarning
 };
