@@ -187,6 +187,13 @@ try {
     logger.error('❌ Failed to load Global Note Routes:', error);
 }
 
+try {
+    app.use('/api/notifications', require('./routes/notificationRoutes'));
+    logger.debug('🔔 Notification routes registered');
+} catch (error) {
+    logger.error('❌ Failed to load Notification Routes:', error);
+}
+
 // Error Handler
 app.use(errorHandler);
 

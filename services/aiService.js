@@ -35,10 +35,12 @@ const analyzeEmailForCircuitId = async (subject, body, validCircuitIds) => {
         We have a strict list of valid Circuit IDs: ${JSON.stringify(validCircuitIds)}.
         
         Analyze the following email SUBJECT and BODY.
-        Determine if exactly one of the valid Circuit IDs is mentioned.
-        If it's mentioned in the SUBJECT, return "subject".
-        If it's ONLY mentioned in the BODY (and not the subject), return "body".
-        If it doesn't match any of the valid Circuit IDs exactly, return "none".
+        Find exactly which valid Circuit ID is mentioned.
+        
+        Rules for "foundIn":
+        1. Does the SUBJECT line contain the Circuit ID? If YES, return "subject".
+        2. Does the BODY text contain the Circuit ID, AND the SUBJECT line does NOT? If YES, return "body".
+        3. If neither contain a valid Circuit ID, return "none".
         
         Respond ONLY with a valid JSON strictly structured as:
         { "foundIn": "subject" | "body" | "none", "circuitId": "ID or null" }
@@ -90,15 +92,18 @@ const processChatbotQuery = async (messages, userTimezone = 'Asia/Kolkata') => {
 
     try {
         const systemPrompt = `
-        You are "EdgeStone Assistant", an expert AI helper built into the EdgeStone ticketing system.
+        You are "Keery", the Smart Personal Assistant for all EdgeStone Employees.
+        You are an expert AI built directly into the EdgeStone ticketing system.
         You have direct access to our database through the tools provided.
-        Your goal is to assist agents in managing tasks, pulling logs, checking SLA breaches, and tracking tickets.
+        Your goal is to analyze every ticket, assist agents in managing tasks, pulling logs, checking SLA breaches, and tracking tickets.
         
         IMPORTANT RULES:
-        1. Always be professional, concise, and helpful. Do not use markdown unless formatting a list or table.
-        2. The user's local timezone is: ${userTimezone}. If you retrieve timestamps from the database (which might be GMT or specific strings), YOU MUST mathematically translate and output them into the user's timezone (${userTimezone}).
+        1. Always be professional, concise, friendly, and extremely helpful. Introduce yourself as Keery when appropriate.
+        2. The user's local timezone is: ${userTimezone}. If you retrieve timestamps from the database, YOU MUST mathematically translate and output them into the user's timezone (${userTimezone}).
         3. Only use the tools provided if necessary to answer the user's question.
-        4. When talking about SLAs, if requested you can detect breaches using the SLA tool.
+        4. When asked to compose an email, generate a highly professional and context-aware email draft that the agent can use.
+        5. You have a tool to post handover notes to the global sticky notes. Use it when an agent asks to prepare a shift handover.
+        6. Act as a proactive assistant—if you see SLA breaches or missing information, highlight it for the agent.
         `;
 
         const tools = [
@@ -228,7 +233,7 @@ const processChatbotQuery = async (messages, userTimezone = 'Asia/Kolkata') => {
                         const handoverText = noteRes.choices[0].message.content;
                         
                         // First, save it to the individual ticket's work logs for auditing
-                        await workNoteService.createWorkNote(uuid, handoverText, null, 'EdgeStone AI (Handover)', true);
+                        await workNoteService.createWorkNote(uuid, handoverText, null, 'Keery (Handover)', true);
                         
                         // Second, POST it globally to the Global Sticky Note (Shift Handover)
                         const currentGlobalNote = await prisma.globalNote.findUnique({ where: { id: 'global-note' } });
@@ -241,8 +246,8 @@ const processChatbotQuery = async (messages, userTimezone = 'Asia/Kolkata') => {
 
                         await prisma.globalNote.upsert({
                             where: { id: 'global-note' },
-                            update: { content: newGlobalContent, updatedBy: 'EdgeStone AI' },
-                            create: { id: 'global-note', content: newGlobalContent, updatedBy: 'EdgeStone AI' }
+                            update: { content: newGlobalContent, updatedBy: 'Keery' },
+                            create: { id: 'global-note', content: newGlobalContent, updatedBy: 'Keery' }
                         });
                         
                         functionResult = JSON.stringify({
@@ -340,7 +345,7 @@ const generateMissingCircuitIdReply = async (fromName, subject, body) => {
         1. Acknowledge their issue gently.
         2. Politely apologize and inform them that we cannot proceed without a valid Circuit ID.
         3. Ask them to reply with a valid Circuit ID to successfully raise the support ticket.
-        4. Sign off as "EdgeStone AI Support Router".
+        4. Sign off as "EdgeStone AI Router".
         
         IMPORTANT: Return ONLY the plain text email body. Use standard newlines (not HTML). Do not include subject lines or metadata.
         `;
@@ -382,7 +387,7 @@ const generateBodyCircuitIdWarning = async (fromName, circuitId) => {
         The reply should:
         1. Acknowledge their issue and confirm that their ticket HAS been created successfully using the Circuit ID (${circuitId}) found in the email body.
         2. Politely request that they mention the Circuit ID in the SUBJECT line for all future requests to ensure faster routing.
-        3. Sign off as "EdgeStone AI Support Router".
+        3. Sign off as "EdgeStone AI Router".
         
         IMPORTANT: Return ONLY the plain text email body. Use standard newlines (not HTML). Do not include subject lines or metadata.
         `;

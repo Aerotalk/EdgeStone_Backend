@@ -177,6 +177,10 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
     });
 
     logger.info(`🎟️ [TICKET] ✅ Client reply appended to Ticket ${ticket.ticketId}`);
+    try {
+        const notificationService = require('./notificationService');
+        notificationService.sendNotification({ type: 'client_reply', message: `Customer replied to Ticket ${ticket.ticketId}`, ticketId: ticket.ticketId });
+    } catch(err) { logger.error(`Notification Error: ${err.message}`) }
     return reply;
 };
 
@@ -219,6 +223,10 @@ const appendVendorReplyToTicket = async (ticket, emailData) => {
     });
 
     logger.info(`🎟️ [TICKET] ✅ Vendor reply appended to Ticket ${ticket.ticketId}`);
+    try {
+        const notificationService = require('./notificationService');
+        notificationService.sendNotification({ type: 'vendor_reply', message: `Vendor replied to Ticket ${ticket.ticketId}`, ticketId: ticket.ticketId });
+    } catch(err) { logger.error(`Notification Error: ${err.message}`) }
     
     // --- AUTOMATIC AI SLA START ON VENDOR REPLY ---
     try {
@@ -481,6 +489,10 @@ const createTicketFromEmail = async (emailData) => {
 
 
         logger.info(`🎟️ [TICKET] ✅ ${ticketType} Ticket Created Successfully: ${ticket.ticketId} at ${ticket.receivedTime}`);
+        try {
+            const notificationService = require('./notificationService');
+            notificationService.sendNotification({ type: 'new_ticket', message: `New Ticket Raised: ${ticket.ticketId}`, ticketId: ticket.ticketId });
+        } catch(err) { logger.error(`Notification Error: ${err.message}`) }
 
         // Note: SLA creation has been moved to appendVendorReplyToTicket 
         // to strictly enforce that SLA only begins when the Vendor replies.

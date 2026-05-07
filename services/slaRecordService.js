@@ -12,7 +12,6 @@ const getAllSLARecords = async ({ search, filter, customStart, customEnd } = {})
         if (!existingTicketIds.has(ticket.id)) {
             const baseTime = new Date(ticket.receivedAt || ticket.createdAt || new Date());
             const slaStart = new Date(baseTime.getTime() + 60000); 
-
             const startDateStr = slaStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
             const startTimeStr = slaStart.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' });
 
