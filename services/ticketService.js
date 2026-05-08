@@ -338,7 +338,7 @@ const createTicketFromEmail = async (emailData) => {
             }
         }
 
-        // 2. Parse Subject and Body for Circuit ID from Database via AI
+        // 2. Parse Subject and Body for Circuit ID from Database via AI + Regex Fallback
         let circuitId = null;
         let circuitUUID = null;
         let foundLocation = 'none';
@@ -357,22 +357,69 @@ const createTicketFromEmail = async (emailData) => {
                 if (c.supplierCircuitId) validCircuitIds.push(c.supplierCircuitId);
             });
 
-            // Make the AI evaluation Call
-            const aiResult = await aiService.analyzeEmailForCircuitId(subject, body, validCircuitIds);
-            
-            if (aiResult && aiResult.circuitId && aiResult.foundIn !== 'none') {
-                 // The AI found a valid Circuit. Let's trace it back to our DB to get its UUID and ensure strictly it exists.
-                 const matchingCircuit = allCircuits.find(c => 
-                     (c.customerCircuitId && c.customerCircuitId.toUpperCase() === aiResult.circuitId.toUpperCase()) || 
-                     (c.supplierCircuitId && c.supplierCircuitId.toUpperCase() === aiResult.circuitId.toUpperCase())
-                 );
-                 
-                 if (matchingCircuit) {
-                     circuitId = matchingCircuit.customerCircuitId; // Master ID
-                     circuitUUID = matchingCircuit.id;
-                     foundLocation = aiResult.foundIn;
-                     logger.info(`🎟️ [TICKET] 🧠 AI Smart Auto-Detected Circuit ID: ${aiResult.circuitId} in ${foundLocation}`);
-                 }
+            // ── STAGE 1: Direct Regex Pre-Check (fast, reliable, AI-independent) ──
+            // Scans subject AND body for any known Circuit ID using case-insensitive string matching.
+            // This catches cases where the AI may fail, time out, or be disabled.
+            const subjectUpper = (subject || '').toUpperCase();
+            const bodyUpper = (body || '').toUpperCase();
+
+            for (const vid of validCircuitIds) {
+                const vidUpper = vid.toUpperCase();
+                if (subjectUpper.includes(vidUpper)) {
+                    const matchingCircuit = allCircuits.find(c =>
+                        (c.customerCircuitId && c.customerCircuitId.toUpperCase() === vidUpper) ||
+                        (c.supplierCircuitId && c.supplierCircuitId.toUpperCase() === vidUpper)
+                    );
+                    if (matchingCircuit) {
+                        circuitId = matchingCircuit.customerCircuitId;
+                        circuitUUID = matchingCircuit.id;
+                        foundLocation = 'subject';
+                        logger.info(`🎟️ [TICKET] 🔍 Regex Pre-Check: Detected Circuit ID "${vid}" in SUBJECT. Skipping AI call.`);
+                        break;
+                    }
+                }
+            }
+
+            // If subject scan missed it, check the body
+            if (!circuitId) {
+                for (const vid of validCircuitIds) {
+                    const vidUpper = vid.toUpperCase();
+                    if (bodyUpper.includes(vidUpper)) {
+                        const matchingCircuit = allCircuits.find(c =>
+                            (c.customerCircuitId && c.customerCircuitId.toUpperCase() === vidUpper) ||
+                            (c.supplierCircuitId && c.supplierCircuitId.toUpperCase() === vidUpper)
+                        );
+                        if (matchingCircuit) {
+                            circuitId = matchingCircuit.customerCircuitId;
+                            circuitUUID = matchingCircuit.id;
+                            foundLocation = 'body';
+                            logger.info(`🎟️ [TICKET] 🔍 Regex Pre-Check: Detected Circuit ID "${vid}" in BODY. Skipping AI call.`);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // ── STAGE 2: AI Fallback (only if regex didn't find anything) ──
+            // Handles ambiguous phrasing like "the above circuit ID" where the ID
+            // might be inferred from context across subject+body together.
+            if (!circuitId) {
+                logger.info(`🎟️ [TICKET] 🤖 Regex pre-check found nothing. Delegating to AI for Circuit ID detection...`);
+                const aiResult = await aiService.analyzeEmailForCircuitId(subject, body, validCircuitIds);
+                
+                if (aiResult && aiResult.circuitId && aiResult.foundIn !== 'none') {
+                    const matchingCircuit = allCircuits.find(c => 
+                        (c.customerCircuitId && c.customerCircuitId.toUpperCase() === aiResult.circuitId.toUpperCase()) || 
+                        (c.supplierCircuitId && c.supplierCircuitId.toUpperCase() === aiResult.circuitId.toUpperCase())
+                    );
+                    
+                    if (matchingCircuit) {
+                        circuitId = matchingCircuit.customerCircuitId;
+                        circuitUUID = matchingCircuit.id;
+                        foundLocation = aiResult.foundIn;
+                        logger.info(`🎟️ [TICKET] 🧠 AI Smart Auto-Detected Circuit ID: ${aiResult.circuitId} in ${foundLocation}`);
+                    }
+                }
             }
 
         } catch (dbErr) {
