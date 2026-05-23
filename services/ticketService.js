@@ -162,6 +162,7 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
         type: 'client',
         category: 'client',
         to: [from],
+        messageId: emailData.messageId || null,
     });
 
     // Log activity
@@ -208,6 +209,7 @@ const appendVendorReplyToTicket = async (ticket, emailData) => {
         type: 'vendor',
         category: 'vendor',
         to: [from],
+        messageId: emailData.messageId || null,
     });
 
     // Log activity
@@ -628,7 +630,7 @@ const getTickets = async () => {
     return tickets;
 };
 
-const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlContent) => {
+const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlContent, attachments) => {
     logger.info(`🎟️ [TICKET] ↩️ Processing reply to ticket ${ticketId} by ${agentName} (${agentEmail})`);
 
     try {
@@ -660,6 +662,15 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
             to: [ticket.email],
         });
 
+        // 2.5 Find last message ID in thread for accurate In-Reply-To
+        const prisma = require('../models/index');
+        const replies = await prisma.reply.findMany({
+            where: { ticketId: ticket.id, messageId: { not: null } },
+            orderBy: { createdAt: 'desc' },
+            take: 1
+        });
+        const threadMessageId = (replies.length > 0 && replies[0].messageId) ? replies[0].messageId : (ticket.messageId || null);
+
         logger.info(`🎟️ [TICKET] ✅ Reply added to database for Ticket ${ticket.ticketId}`);
 
         // 3. Send Email to Client via MS Graph
@@ -682,8 +693,9 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
             subject: `Re: ${ticket.header} [${ticket.ticketId}]`,
             html: emailHtml,
             text: message,   // plain-text fallback for clients that don't render HTML
-            inReplyTo: ticket.messageId,
-            references: ticket.messageId
+            inReplyTo: threadMessageId,
+            references: threadMessageId,
+            attachments: attachments || []
         });
 
         logger.info(`🎟️ [TICKET] 📤 Reply email sent to ${ticket.email}`);

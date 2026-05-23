@@ -68,6 +68,17 @@ const sendViaGraph = async (options) => {
         toRecipients: formatRecipients(to)
     };
 
+    if (options.attachments && options.attachments.length > 0) {
+        message.hasAttachments = true;
+        message.attachments = options.attachments.map(att => {
+            return {
+                '@odata.type': '#microsoft.graph.fileAttachment',
+                name: att.filename || att.name,
+                contentBytes: att.content || att.contentBytes
+            };
+        });
+    }
+
     if (cc) {
         const ccRecips = formatRecipients(cc);
         if (ccRecips.length > 0) message.ccRecipients = ccRecips;

@@ -40,7 +40,7 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
     logger.info(`🎟️ [TICKET] 🔄 replyToVendor: Ticket ${ticketId} | Agent: ${agentName}`);
 
     try {
-        const { message, to, cc, bcc, subject, htmlContent } = emailData;
+        const { message, to, cc, bcc, subject, htmlContent, attachments } = emailData;
         logger.info(`🎟️ [TICKET] DEBUG emailData keys: ${Object.keys(emailData).join(', ')}`);
         logger.info(`🎟️ [TICKET] DEBUG htmlContent exists? ${!!htmlContent}`);
 
@@ -107,11 +107,15 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
 
         logger.info(`🎟️ [TICKET] ✅ Vendor Reply added to database for Ticket ${ticket.ticketId}`);
 
-        // 3. Send Email explicitly to the vendor
         const emailService = require('./emailService');
         
-        // Provide the ticket's messageId so the email threads properly on the vendor side
-        const threadMessageId = ticket.messageId || null;
+        // 3.5 Find last message ID in thread for accurate In-Reply-To
+        const replies = await prisma.reply.findMany({
+            where: { ticketId: ticket.id, messageId: { not: null } },
+            orderBy: { createdAt: 'desc' },
+            take: 1
+        });
+        const threadMessageId = (replies.length > 0 && replies[0].messageId) ? replies[0].messageId : (ticket.messageId || null);
 
         const emailHtml = htmlContent
             ? `
@@ -142,7 +146,8 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
             html: emailHtml,
             text: message,
             inReplyTo: threadMessageId, 
-            references: threadMessageId 
+            references: threadMessageId,
+            attachments: attachments || []
         });
 
         logger.info(`🎟️ [TICKET] 📤 Vendor reply email successfully routed to ${vendorContactEmails.join(', ')}`);
