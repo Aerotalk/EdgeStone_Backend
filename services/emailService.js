@@ -49,10 +49,31 @@ const getGraphAccessToken = async () => {
 };
 
 const sendViaGraph = async (options) => {
-    const { to, cc, bcc, subject, text, body, html, inReplyTo, references, extraHeaders = {} } = options;
+    let { to, cc, bcc, subject, text, body, html, inReplyTo, references, extraHeaders = {} } = options;
     const accessToken = await getGraphAccessToken();
     const userEmail = process.env.SENDER_EMAIL || process.env.MAIL_USER;
     
+    // Parse HTML for base64 inline images and convert them to cid attachments
+    if (html) {
+        let cidCounter = 0;
+        const regex = /src=["']data:image\/([a-zA-Z0-9+.-]+);base64,([^"']+)["']/gi;
+        
+        html = html.replace(regex, (match, ext, base64Data) => {
+            cidCounter++;
+            const cid = `inline-img-${cidCounter}-${Date.now()}`;
+            
+            if (!options.attachments) options.attachments = [];
+            options.attachments.push({
+                name: `image-${cidCounter}.${ext}`,
+                contentBytes: base64Data,
+                isInline: true,
+                contentId: cid
+            });
+            
+            return `src="cid:${cid}"`;
+        });
+    }
+
     const formatRecipients = (recipients) => {
         if (!recipients) return [];
         const arr = Array.isArray(recipients) ? recipients : [recipients];
@@ -71,11 +92,16 @@ const sendViaGraph = async (options) => {
     if (options.attachments && options.attachments.length > 0) {
         message.hasAttachments = true;
         message.attachments = options.attachments.map(att => {
-            return {
+            const attachment = {
                 '@odata.type': '#microsoft.graph.fileAttachment',
                 name: att.filename || att.name,
                 contentBytes: att.content || att.contentBytes
             };
+            if (att.isInline) {
+                attachment.isInline = true;
+                attachment.contentId = att.contentId;
+            }
+            return attachment;
         });
     }
 
