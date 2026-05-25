@@ -35,9 +35,9 @@ dotenv.config();
 const app = express();
 
 // Middleware
-// Limit raised to 10MB to support signatures with embedded base64 images
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Limit raised to 50MB to support signatures with embedded base64 images and attachments
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Dynamic CORS Configuration
 const allowedOrigins = [
