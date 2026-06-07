@@ -560,7 +560,7 @@ const createTicketFromEmail = async (emailData) => {
                 logger.info(`🎟️ [TICKET] 🔄 Initiating auto-reply sequence for Ticket ${ticket.ticketId}...`);
                 await emailService.sendEmail({
                     to: from,
-                    subject: `Ticket Received: ${ticket.ticketId} - ${subject}`,
+                    subject: `Re: [${ticket.ticketId}] ${ticket.header}`,
                     html: `
                         <div style="font-family: Arial, sans-serif; color: #333;">
                             <p>Thank you for reaching out to us. We have received your ticket and our team will get back to you as soon as possible.</p>
@@ -690,7 +690,7 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
 
         const sentResult = await emailService.sendAgentReplyEmail({
             to: ticket.email,
-            subject: `Re: ${ticket.header} [${ticket.ticketId}]`,
+            subject: `Re: [${ticket.ticketId}] ${ticket.header}`,
             html: emailHtml,
             text: message,   // plain-text fallback for clients that don't render HTML
             inReplyTo: threadMessageId,

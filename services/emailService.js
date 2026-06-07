@@ -117,9 +117,6 @@ const sendViaGraph = async (options) => {
     const headers = [];
     
     const addHeader = (name, value) => {
-        if (!name.toLowerCase().startsWith('x-')) {
-            name = `X-${name}`;
-        }
         headers.push({ name, value });
     };
 
