@@ -35,8 +35,8 @@ function ruleMatches(rule, availability) {
     const upperOk =
         rule.upperLimit === null || rule.upperOperator === null
             ? true
-            // Evaluate as: Availability [operator] Rule.UpperLimit
-            : evalOperator(rule.upperOperator, availability, rule.upperLimit);
+            // Evaluate as: Rule.UpperLimit [operator] Availability
+            : evalOperator(rule.upperOperator, rule.upperLimit, availability);
 
     const lowerOk =
         rule.lowerLimit === null || rule.lowerOperator === null
@@ -57,12 +57,11 @@ function ruleToInterval(rule) {
     let lower = rule.lowerLimit ?? -Infinity;
     let upper = rule.upperLimit ??  Infinity;
 
-    // Adjust for strict inequalities so overlap detection works properly
+    // Adjust for strict inequalities so overlap detection works properly.
+    // Av > lowerLimit => strict lower bound
     if (rule.lowerOperator === '>') lower += EPS;
-    if (rule.upperOperator === '<') upper -= EPS;
-
-    // (If the user somehow enters silly boundaries like Av > 99 for upperLimit, 
-    // it functions exactly the same but flipped. We only pad appropriately.)
+    // upperLimit > Av => strict upper bound
+    if (rule.upperOperator === '>') upper -= EPS;
 
     return { lower, upper };
 }
