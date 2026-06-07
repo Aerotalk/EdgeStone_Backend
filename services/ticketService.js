@@ -230,8 +230,31 @@ const appendVendorReplyToTicket = async (ticket, emailData) => {
         notificationService.sendNotification({ type: 'vendor_reply', message: `Vendor replied to Ticket ${ticket.ticketId}`, ticketId: ticket.ticketId });
     } catch(err) { logger.error(`Notification Error: ${err.message}`) }
 
+    // --- AUTOMATIC SLA START ON FIRST VENDOR REPLY ---
+    try {
+        const prisma = require('../models/index');
+        const existingVendorSla = await prisma.sLARecord.findFirst({
+            where: { ticketId: ticket.id, type: 'VENDOR' }
+        });
 
-    return reply;
+        if (!existingVendorSla) {
+            const slaStart = new Date();
+            await prisma.sLARecord.create({
+                data: {
+                    ticketId: ticket.id,
+                    type: 'VENDOR',
+                    startDate: slaStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }),
+                    startTime: slaStart.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' }),
+                    status: 'Safe',
+                    compensation: '-',
+                    statusReason: 'Vendor SLA started on first vendor reply'
+                }
+            });
+            logger.info(`⏱️ [SLA] ✨ Vendor SLA clock started for Ticket ${ticket.ticketId}`);
+        }
+    } catch (slaErr) {
+        logger.warn(`⚠️ ⏱️ [SLA] ⚠️ Failed to start Vendor SLA: ${slaErr.message}`);
+    }    return reply;
 };
 
 const createTicketFromEmail = async (emailData) => {
