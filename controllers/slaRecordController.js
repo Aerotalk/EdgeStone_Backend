@@ -58,19 +58,15 @@ exports.exportSLARecords = async (req, res) => {
     }
 };
 
-exports.getSLARecordByTicketId = async (req, res) => {
+exports.getSLARecordsByTicketId = async (req, res) => {
     try {
         const { ticketId } = req.params;
-        const record = await slaRecordService.getSLARecordByTicketId(ticketId);
+        const records = await slaRecordService.getSLARecordsByTicketId(ticketId);
 
-        if (!record) {
-            return res.status(404).json({ success: false, message: 'SLA record not found' });
-        }
-
-        res.status(200).json({ success: true, data: record });
+        res.status(200).json({ success: true, data: records });
     } catch (error) {
-        logger.error('🚨 ⏱️ [SLA] ❌ Error fetching SLA record by ticket:', error);
-        res.status(500).json({ success: false, message: 'Failed to fetch SLA record' });
+        logger.error('🚨 ⏱️ [SLA] ❌ Error fetching SLA records by ticket:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch SLA records' });
     }
 };
 
@@ -88,10 +84,10 @@ exports.createSLARecord = async (req, res) => {
 
 exports.updateSLAClosure = async (req, res) => {
     try {
-        const { ticketId } = req.params;
+        const { id } = req.params;
         const { closeDate, closedTime } = req.body;
 
-        const updatedRecord = await slaRecordService.updateSLAClosure(ticketId, closeDate, closedTime);
+        const updatedRecord = await slaRecordService.updateSLAClosure(id, closeDate, closedTime);
 
         res.status(200).json({ success: true, data: updatedRecord });
     } catch (error) {
@@ -105,22 +101,22 @@ exports.updateSLAClosure = async (req, res) => {
 
 exports.manualUpdate = async (req, res) => {
     try {
-        const { ticketId } = req.params;
+        const { id } = req.params;
         const { startDate, startTime, closeDate, closedTime, timeZone } = req.body;
         
         const agentName = req.user ? req.user.name : 'Agent';
-        logger.info(`⏱️ [SLA] 🔄 ${agentName} manually updating SLA for ticket ${ticketId}`);
+        logger.info(`⏱️ [SLA] 🔄 ${agentName} manually updating SLA ${id}`);
         
         const { PrismaClient } = require('@prisma/client');
         const prisma = new PrismaClient();
         
-        const existing = await prisma.sLARecord.findUnique({ where: { ticketId } });
+        const existing = await prisma.sLARecord.findUnique({ where: { id } });
         if (!existing) {
             return res.status(404).json({ success: false, message: 'SLA record not found' });
         }
         
         const updatedRecord = await prisma.sLARecord.update({
-            where: { ticketId },
+            where: { id },
             data: {
                 ...(startDate !== undefined && { startDate }),
                 ...(startTime !== undefined && { startTime }),

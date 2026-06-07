@@ -108,7 +108,7 @@ model Ticket {
 
   replies      Reply[]
   notes        Note[]
-  sla          SLARecord?
+  slaRecords   SLARecord[]
   activityLogs ActivityLog[]
   workNotes    WorkNote[]
 }
@@ -160,7 +160,8 @@ model SLARecord {
   statusReason String?
   timeZone     String @default("UTC")
 
-  ticketId String @unique
+  ticketId String
+  type     String @default("CLIENT") // "CLIENT" | "VENDOR"
   ticket   Ticket @relation(fields: [ticketId], references: [id])
 }
 

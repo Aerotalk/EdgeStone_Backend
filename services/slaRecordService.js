@@ -131,8 +131,8 @@ const getAllSLARecords = async ({ search, filter, customStart, customEnd } = {})
     return mapped;
 };
 
-const getSLARecordByTicketId = async (ticketId) => {
-    return await prisma.sLARecord.findUnique({
+const getSLARecordsByTicketId = async (ticketId) => {
+    return await prisma.sLARecord.findMany({
         where: { ticketId }
     });
 };
@@ -148,9 +148,9 @@ const createSLARecord = async (data) => {
     });
 };
 
-const updateSLAClosure = async (ticketId, closeDate, closedTime) => {
+const updateSLAClosure = async (id, closeDate, closedTime) => {
     const existingRecord = await prisma.sLARecord.findUnique({ 
-        where: { ticketId },
+        where: { id },
         include: { ticket: { select: { id: true, ticketId: true, circuitId: true } } }
     });
     if (!existingRecord) {
@@ -158,7 +158,7 @@ const updateSLAClosure = async (ticketId, closeDate, closedTime) => {
     }
 
     const updated = await prisma.sLARecord.update({
-        where: { ticketId },
+        where: { id },
         data: { closeDate, closedTime }
     });
 
@@ -187,7 +187,12 @@ const updateSLAClosure = async (ticketId, closeDate, closedTime) => {
                 });
 
                 if (circuit) {
-                    const circuitSlas = await prisma.sla.findMany({ where: { circuitId: circuit.id } });
+                    const circuitSlas = await prisma.sla.findMany({ 
+                        where: { 
+                            circuitId: circuit.id,
+                            appliesTo: { in: existingRecord.type === 'CLIENT' ? ['CLIENT', 'CUSTOMER'] : ['VENDOR'] }
+                        } 
+                    });
 
                     if (circuitSlas.length > 0) {
                         const slaService = require('./slaService');
@@ -216,7 +221,7 @@ const updateSLAClosure = async (ticketId, closeDate, closedTime) => {
                         const slaStatusDisplay = highestStatus === 'BREACHED' ? 'Breached' : 'Safe';
 
                         await prisma.sLARecord.update({
-                            where: { ticketId },
+                            where: { id },
                             data: {
                                 compensation: compensationDisplay,
                                 status: slaStatusDisplay,
@@ -278,7 +283,7 @@ const updateSLARecordStatus = async (id, status, reason, agentName) => {
 
 module.exports = {
     getAllSLARecords,
-    getSLARecordByTicketId,
+    getSLARecordsByTicketId,
     createSLARecord,
     updateSLAClosure,
     updateSLARecordStatus

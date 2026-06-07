@@ -229,47 +229,7 @@ const appendVendorReplyToTicket = async (ticket, emailData) => {
         const notificationService = require('./notificationService');
         notificationService.sendNotification({ type: 'vendor_reply', message: `Vendor replied to Ticket ${ticket.ticketId}`, ticketId: ticket.ticketId });
     } catch(err) { logger.error(`Notification Error: ${err.message}`) }
-    
-    // --- AUTOMATIC AI SLA START ON VENDOR REPLY ---
-    try {
-        const prisma = require('../models/index');
-        // Check if SLA already exists for this ticket
-        const existingSLA = await prisma.sLARecord.findUnique({ where: { ticketId: ticket.id }});
-        
-        if (!existingSLA) {
-            logger.info(`🤖 🎟️ [TICKET] No SLA found. Asking AI to extract SLA start time from Vendor Reply for Ticket ${ticket.ticketId}...`);
-            const aiService = require('./aiService');
-            
-            // Extract from the vendor's reply text
-            const aiResult = await aiService.extractSLAStartTimes(replyText);
-            
-            let startDateStr, startTimeStr;
-            
-            if (aiResult && aiResult.found) {
-                logger.info(`🧠 🎟️ [TICKET] AI successfully extracted SLA start time: ${aiResult.startDate} ${aiResult.startTime}`);
-                startDateStr = aiResult.startDate;
-                startTimeStr = aiResult.startTime;
-            } else {
-                logger.info(`🤖 🎟️ [TICKET] AI couldn't find an explicit time in the vendor's reply. Falling back to the vendor reply's timestamp.`);
-                startDateStr = emailReceivedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-                startTimeStr = emailReceivedDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' hrs';
-            }
-            
-            await prisma.sLARecord.create({
-                data: {
-                    ticketId: ticket.id,
-                    startDate: startDateStr,
-                    startTime: startTimeStr,
-                    status: 'Safe',
-                    compensation: '-',
-                    statusReason: aiResult && aiResult.found ? 'AI extracted time from Vendor' : 'Fallback to Vendor reply time'
-                }
-            });
-            logger.info(`🎟️ [TICKET] ✅ SLA Record dynamically created on Vendor Reply for Ticket ${ticket.ticketId}`);
-        }
-    } catch (slaErr) {
-         logger.error(`🚨 🎟️ [TICKET] ❌ Failed to automatically start SLA Record on Vendor Reply: ${slaErr.message}`);
-    }
+
 
     return reply;
 };
@@ -734,6 +694,31 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
         });
 
         logger.info(`🎟️ [TICKET] 📊 Activity logged: reply by ${agentName}`);
+
+        // --- AUTOMATIC SLA START ON FIRST AGENT REPLY TO CLIENT ---
+        try {
+            const existingClientSla = await prisma.sLARecord.findFirst({
+                where: { ticketId: ticket.id, type: 'CLIENT' }
+            });
+
+            if (!existingClientSla) {
+                const slaStart = new Date();
+                await prisma.sLARecord.create({
+                    data: {
+                        ticketId: ticket.id,
+                        type: 'CLIENT',
+                        startDate: slaStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }),
+                        startTime: slaStart.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' }),
+                        status: 'Safe',
+                        compensation: '-',
+                        statusReason: 'Client SLA started'
+                    }
+                });
+                logger.info(`⏱️ [SLA] ✨ Client SLA clock started for Ticket ${ticket.ticketId}`);
+            }
+        } catch (slaErr) {
+            logger.warn(`⚠️ ⏱️ [SLA] ⚠️ Failed to start Client SLA: ${slaErr.message}`);
+        }
 
         return reply;
 
