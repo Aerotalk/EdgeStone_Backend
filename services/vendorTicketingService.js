@@ -121,14 +121,14 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
             ? `
                 <div style="font-family: Arial, sans-serif; margin-bottom: 16px;">
                     <p>Hello Vendor Support Team,</p>
-                    <p>Regarding Ticket <strong>${ticket.ticketId}</strong>:</p>
+                    <p>Regarding case number <strong>${ticket.ticketId}</strong>:</p>
                 </div>
                 ${htmlContent}
               `
             : `
                 <div style="font-family: Arial, sans-serif;">
                     <p>Hello Vendor Support Team,</p>
-                    <p>Regarding Ticket <strong>${ticket.ticketId}</strong>:</p>
+                    <p>Regarding case number <strong>${ticket.ticketId}</strong>:</p>
                     <p>${message.replace(/\n/g, '<br>')}</p>
                     <br/>
                     <hr/>
