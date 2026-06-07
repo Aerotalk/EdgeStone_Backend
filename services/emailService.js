@@ -117,18 +117,29 @@ const sendViaGraph = async (options) => {
     const headers = [];
     
     const addHeader = (name, value) => {
-        headers.push({ name, value });
+        if (name.toLowerCase().startsWith('x-')) {
+            headers.push({ name, value });
+        }
     };
 
-    if (inReplyTo) addHeader('In-Reply-To', inReplyTo);
-    if (references) addHeader('References', references);
-    
     Object.keys(extraHeaders).forEach(key => {
         addHeader(key, extraHeaders[key]);
     });
 
     if (headers.length > 0) {
         message.internetMessageHeaders = headers;
+    }
+
+    // Use extended properties for In-Reply-To and References to enable threading
+    const extendedProps = [];
+    if (inReplyTo) {
+        extendedProps.push({ id: 'String 0x1042', value: inReplyTo });
+    }
+    if (references) {
+        extendedProps.push({ id: 'String 0x1039', value: references });
+    }
+    if (extendedProps.length > 0) {
+        message.singleValueExtendedProperties = extendedProps;
     }
 
     const headersUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/sendMail`;
