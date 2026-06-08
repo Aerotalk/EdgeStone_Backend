@@ -305,30 +305,31 @@ const createTicketFromEmail = async (emailData) => {
             }
         }
 
-        // 1. Identify Sender
+        // 1. Identify Potential Senders
+        let potentialClientIds = [];
+        let potentialVendorIds = [];
         let clientId = null;
         let vendorId = null;
         let ticketType = 'Client';
 
+        const ClientModel = require('../models/client');
         const clients = await ClientModel.findAllClients();
-        const client = clients.find(c => c.emails.some(e => e.toLowerCase() === from.toLowerCase()));
+        potentialClientIds = clients.filter(c => c.emails.some(e => e.toLowerCase() === from.toLowerCase())).map(c => c.id);
 
-        if (client) {
-            clientId = client.id;
-            logger.debug(`🐞 🎟️ [TICKET] 👤 Identified sender as Client: ${client.name} (${client.id})`);
+        const VendorModel = require('../models/vendor');
+        const vendors = await VendorModel.findAllVendors();
+        potentialVendorIds = vendors.filter(v => v.emails.some(e => e.toLowerCase() === from.toLowerCase())).map(v => v.id);
+
+        // Set initial defaults (first match wins, will be disambiguated by circuit later if needed)
+        if (potentialClientIds.length > 0) {
+            clientId = potentialClientIds[0];
+            logger.debug(`🐞 🎟️ [TICKET] 👤 Initially identified sender as Client: ${clientId}`);
+        } else if (potentialVendorIds.length > 0) {
+            vendorId = potentialVendorIds[0];
+            ticketType = 'Vendor';
+            logger.debug(`🐞 🎟️ [TICKET] 🏢 Initially identified sender as Vendor: ${vendorId}`);
         } else {
-            // Check Vendor
-            const VendorModel = require('../models/vendor');
-            const vendors = await VendorModel.findAllVendors();
-            const vendor = vendors.find(v => v.emails.some(e => e.toLowerCase() === from.toLowerCase()));
-            
-            if (vendor) {
-                vendorId = vendor.id;
-                ticketType = 'Vendor';
-                logger.debug(`🐞 🎟️ [TICKET] 🏢 Identified sender as Vendor: ${vendor.name} (${vendor.id})`);
-            } else {
-                logger.debug(`🐞 🎟️ [TICKET] ❓ Sender not identified as existing client or vendor.`);
-            }
+            logger.debug(`🐞 🎟️ [TICKET] ❓ Sender not identified as existing client or vendor.`);
         }
 
         // 2. Parse Subject and Body for Circuit ID from Database via AI + Regex Fallback
@@ -339,9 +340,9 @@ const createTicketFromEmail = async (emailData) => {
         const aiService = require('./aiService');
         
         try {
-            // Fetch circuits including supplier IDs
+            // Fetch circuits including supplier IDs, clientId and vendorId for disambiguation
             const allCircuits = await prisma.circuit.findMany({ 
-                select: { id: true, customerCircuitId: true, supplierCircuitId: true } 
+                select: { id: true, customerCircuitId: true, supplierCircuitId: true, clientId: true, vendorId: true } 
             });
             
             const validCircuitIds = [];
@@ -411,6 +412,24 @@ const createTicketFromEmail = async (emailData) => {
                         circuitUUID = matchingCircuit.id;
                         foundLocation = aiResult.foundIn;
                         logger.info(`🎟️ [TICKET] 🧠 AI Smart Auto-Detected Circuit ID: ${aiResult.circuitId} in ${foundLocation}`);
+                    }
+                }
+            }
+
+            // --- Disambiguate Sender based on detected circuit ---
+            if (circuitId) {
+                const detectedCircuitRecord = allCircuits.find(c => c.customerCircuitId === circuitId || c.supplierCircuitId === circuitId);
+                if (detectedCircuitRecord) {
+                    if (detectedCircuitRecord.clientId && potentialClientIds.includes(detectedCircuitRecord.clientId)) {
+                        clientId = detectedCircuitRecord.clientId;
+                        ticketType = 'Client';
+                        vendorId = null;
+                        logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Client ${clientId} based on Circuit ${circuitId}`);
+                    } else if (detectedCircuitRecord.vendorId && potentialVendorIds.includes(detectedCircuitRecord.vendorId)) {
+                        vendorId = detectedCircuitRecord.vendorId;
+                        ticketType = 'Vendor';
+                        clientId = null;
+                        logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Vendor ${vendorId} based on Circuit ${circuitId}`);
                     }
                 }
             }
