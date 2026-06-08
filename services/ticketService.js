@@ -280,6 +280,13 @@ const createTicketFromEmail = async (emailData) => {
                 logger.warn(`🚨 [TICKET] Duplicate email detected. Ticket already exists for messageId: ${messageId}. Skipping.`);
                 return duplicateTicket;
             }
+
+            // Check if a Reply with this incoming messageId already exists
+            const duplicateReply = await prisma.reply.findFirst({ where: { messageId } });
+            if (duplicateReply) {
+                logger.warn(`🚨 [TICKET] Duplicate email detected. Reply already exists for messageId: ${messageId}. Skipping.`);
+                return duplicateReply;
+            }
         }
 
         // 0. Check if this email is a reply to an existing ticket
