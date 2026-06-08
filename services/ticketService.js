@@ -630,7 +630,9 @@ const getTickets = async () => {
                 orderBy: {
                     createdAt: 'asc'
                 }
-            }
+            },
+            client: true,
+            vendor: true
         },
         orderBy: {
             createdAt: 'desc'
