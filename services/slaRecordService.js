@@ -1,7 +1,7 @@
 const prisma = require('../models/index');
 const logger = require('../utils/logger');
 
-const getAllSLARecords = async ({ search, filter, customStart, customEnd } = {}) => {
+const getAllSLARecords = async ({ search, filter, customStart, customEnd, type } = {}) => {
     // --- BACKFILL: Ensure EVERY ticket has a corresponding SLA record ---
     const allTickets = await prisma.ticket.findMany();
     const existingRecords = await prisma.sLARecord.findMany();
@@ -33,7 +33,21 @@ const getAllSLARecords = async ({ search, filter, customStart, customEnd } = {})
         logger.info('⏱️ [SLA] ✨ Retroactively provisioned SLA records for older tickets missing them.');
     }
 
+    let queryWhere = {};
+    if (type) {
+        // e.g. type 'Client' -> match 'Client' or 'CLIENT' (Prisma case-insensitive)
+        queryWhere = {
+            ticket: {
+                ticketType: {
+                    equals: type,
+                    mode: 'insensitive'
+                }
+            }
+        };
+    }
+
     const slaRecords = await prisma.sLARecord.findMany({
+        where: queryWhere,
         include: {
             ticket: {
                 select: {

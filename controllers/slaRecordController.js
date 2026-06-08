@@ -3,9 +3,9 @@ const logger = require('../utils/logger');
 
 exports.getAllSLARecords = async (req, res) => {
     try {
-        const { search, filter, customStart, customEnd } = req.query;
+        const { search, filter, customStart, customEnd, type } = req.query;
         logger.debug('🐞 ⏱️ [SLA] 📝 Request received: getAllSLARecords');
-        const data = await slaRecordService.getAllSLARecords({ search, filter, customStart, customEnd });
+        const data = await slaRecordService.getAllSLARecords({ search, filter, customStart, customEnd, type });
         res.status(200).json({ success: true, data });
     } catch (error) {
         logger.error('🚨 ⏱️ [SLA] ❌ Error fetching SLA records:', error);
@@ -15,9 +15,9 @@ exports.getAllSLARecords = async (req, res) => {
 
 exports.exportSLARecords = async (req, res) => {
     try {
-        const { search, filter, customStart, customEnd } = req.query;
+        const { search, filter, customStart, customEnd, type } = req.query;
         logger.debug('🐞 ⏱️ [SLA] 📝 Request received: exportSLARecords');
-        const data = await slaRecordService.getAllSLARecords({ search, filter, customStart, customEnd });
+        const data = await slaRecordService.getAllSLARecords({ search, filter, customStart, customEnd, type });
 
         const headers = [
             'Ticket ID',
