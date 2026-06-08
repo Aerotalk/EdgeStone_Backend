@@ -77,8 +77,10 @@ const findExistingTicketForReply = async (inReplyTo, references, subject) => {
         const ticketIdMatch = subject.match(/\[(#V?\d+)(?:-V)?\]/i);
         if (ticketIdMatch && ticketIdMatch[1]) {
             const friendlyId = ticketIdMatch[1].toUpperCase(); // standardize case
-            const tickets = await TicketModel.findAllTickets();
-            const ticket = tickets.find(t => t.ticketId.toUpperCase() === friendlyId);
+            const prisma = require('../models/index');
+            const ticket = await prisma.ticket.findFirst({
+                where: { ticketId: { equals: friendlyId, mode: 'insensitive' } }
+            });
             if (ticket) {
                 logger.info(`🎟️ [TICKET] 🧵 Reply matched via Subject ID: ${friendlyId} → Ticket ${ticket.ticketId}`);
                 return ticket;
@@ -125,13 +127,14 @@ const findExistingTicketForReply = async (inReplyTo, references, subject) => {
         const stripped = subject.replace(/^(Re|Fwd|FW|RE|FWD):\s*/gi, '').trim();
         
         if (stripped && isReplyPattern) {
-            const allTickets = await TicketModel.findAllTickets();
+            const prisma = require('../models/index');
+            const allTickets = await prisma.ticket.findMany({ select: { id: true, ticketId: true, header: true } });
             const match = allTickets.find(t =>
                 t.header && t.header.replace(/^(Re|Fwd|FW|RE|FWD):\s*/gi, '').trim() === stripped
             );
             if (match) {
                 logger.info(`🎟️ [TICKET] 🧵 Reply matched via subject fallback: "${stripped}" → Ticket ${match.ticketId}`);
-                return match;
+                return await TicketModel.findTicketById(match.id);
             }
         }
     }
@@ -283,6 +286,11 @@ const createTicketFromEmail = async (emailData) => {
             const vendors = await VendorModel.findAllVendors();
             let isVendor = vendors.some(v => v.emails.some(e => e.toLowerCase() === from.toLowerCase()));
             
+            // PREVENT FALSE POSITIVE: If the sender is the original client, don't default to vendor thread
+            if (existingTicket.email && existingTicket.email.toLowerCase() === from.toLowerCase()) {
+                isVendor = false;
+            }
+
             // EXPLICIT ROUTING: If the subject contains the explicit vendor suffix (e.g. [#1024-V]), force it into vendor thread
             // even if the email doesn't strictly match the saved vendor emails list in the DB yet!
             if (subject && /\[#V?\d+-V\]/i.test(subject)) {
@@ -620,8 +628,8 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
         // 1. Find Ticket
         let ticket;
         if (ticketId.startsWith('#')) {
-            const tickets = await TicketModel.findAllTickets();
-            ticket = tickets.find(t => t.ticketId === ticketId);
+            const prisma = require('../models/index');
+            ticket = await prisma.ticket.findFirst({ where: { ticketId: { equals: ticketId, mode: 'insensitive' } } });
         } else {
             ticket = await TicketModel.findTicketById(ticketId);
         }
@@ -759,8 +767,8 @@ const updateTicket = async (ticketId, updates, agentName) => {
         // 1. Find the ticket
         let ticket;
         if (ticketId.startsWith('#')) {
-            const tickets = await TicketModel.findAllTickets();
-            ticket = tickets.find(t => t.ticketId === ticketId);
+            const prisma = require('../models/index');
+            ticket = await prisma.ticket.findFirst({ where: { ticketId: { equals: ticketId, mode: 'insensitive' } } });
         } else {
             ticket = await TicketModel.findTicketById(ticketId);
         }
