@@ -183,7 +183,11 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
     logger.info(`🎟️ [TICKET] ✅ Client reply appended to Ticket ${ticket.ticketId}`);
     try {
         const notificationService = require('./notificationService');
-        notificationService.sendNotification({ type: 'client_reply', message: `Customer replied to Ticket ${ticket.ticketId}`, ticketId: ticket.ticketId });
+        let message = `Customer replied to Ticket ${ticket.ticketId}`;
+        if (ticket.status.toLowerCase() === 'closed') {
+            message = `Customer replied to Ticket ${ticket.ticketId} which is closed, please re-open it to continue conversation`;
+        }
+        notificationService.sendNotification({ type: 'client_reply', message, ticketId: ticket.ticketId });
     } catch(err) { logger.error(`Notification Error: ${err.message}`) }
     return reply;
 };
@@ -482,9 +486,14 @@ const createTicketFromEmail = async (emailData) => {
              })();
         }
 
-        // 3. Generate ID
-        const ticketId = await generateTicketId(ticketType);
-        logger.debug(`🐞 🎟️ [TICKET] 🆔 Generated ${ticketType} Ticket ID: ${ticketId}`);
+        let ticketId;
+        let ticket;
+        let retries = 0;
+        const maxRetries = 3;
+
+        while (retries < maxRetries) {
+            ticketId = await generateTicketId(ticketType);
+            logger.debug(`🐞 🎟️ [TICKET] 🆔 Generated ${ticketType} Ticket ID: ${ticketId}`);
 
         // 4. Use REAL email received timestamp, not current time
         logger.info('🎟️ [TICKET] ⏰⏰⏰ PERMAN is fetching time... ⏰⏰⏰');
@@ -494,57 +503,69 @@ const createTicketFromEmail = async (emailData) => {
         logger.info(`🎟️ [TICKET] ⏰ PERMAN Formatted Time: ${emailReceivedDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`);
 
         // 5. Create Ticket with real timestamp
-        const ticket = await TicketModel.createTicket({
-            ticketId,
-            header: subject || 'No Subject',
-            email: from,
-            status: 'Open',
-            priority: 'Medium',
-            circuitId: circuitId, // Add circuitId to ticket
-            messageId: messageId, // Store original email messageId for threading
-            receivedAt: emailReceivedDate, // NEW: Store ISO timestamp
-            receivedTime: emailReceivedDate.toLocaleTimeString('en-US', {
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false
-            }), // NEW: Store display time (24-hour format)
-            date: emailReceivedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
-            clientId: clientId,
-            vendorId: vendorId,
-            ticketType: ticketType,
-            replies: {
-                create: {
-                    text: stripHtml(body) || '(No Content)',
-                    time: emailReceivedDate.toLocaleTimeString('en-US', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        hour12: false
-                    }), // FIXED: Use email time, not current time
-                    date: emailReceivedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
-                    author: fromName || from,
-                    type: ticketType.toLowerCase(),
-                    category: ticketType.toLowerCase(),
-                    to: [from],
+        try {
+            ticket = await TicketModel.createTicket({
+                ticketId,
+                header: subject || 'No Subject',
+                email: from,
+                status: 'Open',
+                priority: 'Medium',
+                circuitId: circuitId, // Add circuitId to ticket
+                messageId: messageId, // Store original email messageId for threading
+                receivedAt: emailReceivedDate, // NEW: Store ISO timestamp
+                receivedTime: emailReceivedDate.toLocaleTimeString('en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }), // NEW: Store display time (24-hour format)
+                date: emailReceivedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+                clientId: clientId,
+                vendorId: vendorId,
+                ticketType: ticketType,
+                replies: {
+                    create: {
+                        text: stripHtml(body) || '(No Content)',
+                        time: emailReceivedDate.toLocaleTimeString('en-US', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: false
+                        }), // FIXED: Use email time, not current time
+                        date: emailReceivedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+                        author: fromName || from,
+                        type: ticketType.toLowerCase(),
+                        category: ticketType.toLowerCase(),
+                        to: [from],
+                    }
+                },
+                activityLogs: {
+                    create: {
+                        action: 'created',
+                        description: `Ticket created from email by ${fromName || from}`,
+                        time: emailReceivedDate.toLocaleTimeString('en-US', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: false
+                        }),
+                        date: emailReceivedDate.toLocaleDateString('en-GB', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric'
+                        }),
+                        author: fromName || from
+                    }
                 }
-            },
-            activityLogs: {
-                create: {
-                    action: 'created',
-                    description: `Ticket created from email by ${fromName || from}`,
-                    time: emailReceivedDate.toLocaleTimeString('en-US', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        hour12: false
-                    }),
-                    date: emailReceivedDate.toLocaleDateString('en-GB', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric'
-                    }),
-                    author: fromName || from
-                }
+            });
+            break; // Success! Exit loop
+        } catch (error) {
+            if (error.code === 'P2002' && retries < maxRetries - 1) {
+                logger.warn(`⚠️ 🎟️ [TICKET] Unique constraint failed on ticketId ${ticketId}, retrying (${retries + 1}/${maxRetries})...`);
+                retries++;
+                await new Promise(resolve => setTimeout(resolve, Math.random() * 200 + 100)); // random delay 100-300ms
+            } else {
+                throw error;
             }
-        });
+        }
+    }
 
 
         logger.info(`🎟️ [TICKET] ✅ ${ticketType} Ticket Created Successfully: ${ticket.ticketId} at ${ticket.receivedTime}`);

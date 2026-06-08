@@ -254,7 +254,7 @@ const startImapListener = () => {
     logger.info('[EMAIL] Starting Graph API Poller...');
     fetchNewGraphEmails();
     if (!graphPollInterval) {
-        graphPollInterval = setInterval(fetchNewGraphEmails, 30000);
+        graphPollInterval = setInterval(fetchNewGraphEmails, 5000);
     }
 };
 

@@ -29,8 +29,30 @@ const subscribe = (req, res) => {
  * Send notification to all connected clients
  * @param {Object} data 
  */
-const sendNotification = (data) => {
+const sendNotification = async (data) => {
     logger.info(`🔔 [NOTIFICATIONS] Sending event: ${data.type}`);
+    
+    try {
+        const { PrismaClient } = require('@prisma/client');
+        const prisma = new PrismaClient();
+        
+        // Save to DB
+        const savedNotif = await prisma.notification.create({
+            data: {
+                title: data.type === 'new_ticket' ? 'New Ticket' : 'Ticket Update',
+                message: data.message || '',
+                type: data.type || 'info',
+                ticketId: data.ticketId || null
+            }
+        });
+        
+        // Attach ID so frontend can mark read
+        data.id = savedNotif.id;
+        
+    } catch (err) {
+        logger.error(`🚨 [NOTIFICATIONS] Failed to save to DB: ${err.message}`);
+    }
+
     clients.forEach(client => {
         try {
             client.write(`data: ${JSON.stringify(data)}\n\n`);

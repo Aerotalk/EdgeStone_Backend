@@ -354,3 +354,19 @@ model Signature {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// ============================================================
+// --- Notification Management ---
+// ============================================================
+
+model Notification {
+  id          String   @id @default(uuid())
+  title       String?
+  message     String
+  type        String   @default("info")
+  isRead      Boolean  @default(false)
+  ticketId    String?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
