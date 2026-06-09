@@ -35,14 +35,9 @@ const getAllSLARecords = async ({ search, filter, customStart, customEnd, type }
 
     let queryWhere = {};
     if (type) {
-        // e.g. type 'Client' -> match 'Client' or 'CLIENT' (Prisma case-insensitive)
+        // match 'CLIENT' or 'VENDOR' based on SLARecord native type
         queryWhere = {
-            ticket: {
-                ticketType: {
-                    equals: type,
-                    mode: 'insensitive'
-                }
-            }
+            type: type.toUpperCase()
         };
     }
 
