@@ -52,7 +52,7 @@ const updateTicket = async (req, res, next) => {
 const replyTicket = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { message, htmlContent, attachments } = req.body;   // htmlContent = full HTML with signature
+        const { message, htmlContent, attachments, to, cc, bcc, subject } = req.body;   // htmlContent = full HTML with signature
         // Assuming authMiddleware attaches user to req
         const agentName = req.user ? req.user.name : 'Agent';
         const agentEmail = req.user ? req.user.email : 'support@edgestone.in';
@@ -72,7 +72,7 @@ const replyTicket = async (req, res, next) => {
 
         logger.info(`🎟️ [TICKET] 🗣️ Agent ${agentName} replying to ticket ${id}`);
 
-        const reply = await ticketService.replyToTicket(id, message, agentEmail, agentName, htmlContent, attachments);
+        const reply = await ticketService.replyToTicket(id, message, agentEmail, agentName, htmlContent, attachments, { to, cc, bcc, subject });
         res.status(201).json({ message: 'Reply sent successfully', reply });
     } catch (error) {
         next(error);

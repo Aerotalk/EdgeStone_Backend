@@ -670,7 +670,7 @@ const getTickets = async () => {
     return tickets;
 };
 
-const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlContent, attachments) => {
+const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlContent, attachments, emailOverrides = {}) => {
     logger.info(`🎟️ [TICKET] ↩️ Processing reply to ticket ${ticketId} by ${agentName} (${agentEmail})`);
 
     try {
@@ -687,6 +687,11 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
             throw new Error(`Ticket not found: ${ticketId}`);
         }
 
+        const recipientEmails = (emailOverrides.to && Array.isArray(emailOverrides.to) && emailOverrides.to.length > 0) ? emailOverrides.to : [ticket.email];
+        const emailSubject = emailOverrides.subject || `Re: [${ticket.ticketId}] ${ticket.header}`;
+        const ccEmails = (emailOverrides.cc && Array.isArray(emailOverrides.cc)) ? emailOverrides.cc : [];
+        const bccEmails = (emailOverrides.bcc && Array.isArray(emailOverrides.bcc)) ? emailOverrides.bcc : [];
+
         // 2. Create Reply Record
         const reply = await TicketModel.addReply(ticket.id, {
             text: message,
@@ -699,7 +704,10 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
             author: agentName || 'Agent',
             type: 'agent',
             category: 'client',
-            to: [ticket.email],
+            to: recipientEmails,
+            cc: ccEmails,
+            bcc: bccEmails,
+            subject: emailSubject
         });
 
         // 2.5 Find last message ID in thread for accurate In-Reply-To
@@ -717,7 +725,7 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
         // If the frontend provided a pre-composed HTML body (with formatted signature + images),
         // use it directly. Otherwise fall back to plain-text → HTML conversion.
         const emailService = require('./emailService');
-        logger.info(`🎟️ [TICKET] 📧 Sending Agent Reply Email to: ${ticket.email} | Subject: Re: ${ticket.header}`);
+        logger.info(`🎟️ [TICKET] 📧 Sending Agent Reply Email to: ${recipientEmails.join(', ')} | Subject: ${emailSubject}`);
 
         const emailHtml = htmlContent
             ? htmlContent   // ← Rich HTML: bold, italic, images, font colors all preserved
@@ -729,8 +737,10 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
                </div>`;
 
         const sentResult = await emailService.sendAgentReplyEmail({
-            to: ticket.email,
-            subject: `Re: [${ticket.ticketId}] ${ticket.header}`,
+            to: recipientEmails,
+            cc: ccEmails,
+            bcc: bccEmails,
+            subject: emailSubject,
             html: emailHtml,
             text: message,   // plain-text fallback for clients that don't render HTML
             inReplyTo: threadMessageId,
@@ -738,7 +748,7 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
             attachments: attachments || []
         });
 
-        logger.info(`🎟️ [TICKET] 📤 Reply email sent to ${ticket.email}`);
+        logger.info(`🎟️ [TICKET] 📤 Reply email sent to ${recipientEmails.join(', ')}`);
 
         // Try to capture and save the outgoing Message-ID for future reverse-matching
         try {
