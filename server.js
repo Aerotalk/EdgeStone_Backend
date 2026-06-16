@@ -194,6 +194,13 @@ try {
     logger.error('❌ Failed to load Notification Routes:', error);
 }
 
+try {
+    app.use('/api/roadmap', require('./routes/roadmapRoutes'));
+    logger.debug('🗺️ Roadmap routes registered');
+} catch (error) {
+    logger.error('❌ Failed to load Roadmap Routes:', error);
+}
+
 // Error Handler
 app.use(errorHandler);
 
