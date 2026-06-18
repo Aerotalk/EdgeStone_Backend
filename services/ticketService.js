@@ -493,6 +493,12 @@ const createTicketFromEmail = async (emailData) => {
              })();
         }
 
+        // 🛡️ STOP VENDOR TICKETS: As per client request, Vendors cannot raise NEW tickets.
+        if (ticketType === 'Vendor') {
+            logger.warn(`⚠️ 🎟️ [TICKET] 🚫 DROPPED EMAIL: Subject "${subject}" from Vendor ${from}. Vendors are not allowed to raise new tickets. Email ignored.`);
+            return null;
+        }
+
         let ticketId;
         let ticket;
         let retries = 0;
