@@ -489,7 +489,7 @@ async function calculateSla(slaId, downtimeMinutes, totalUptimeMinutes) {
         }
     }
 
-    logger.info(`⏱️ [SLA] 🔍 [SLA ENGINE] Step 3: Match Engine evaluated ➡️ ${matchedRule ? (fallbackTriggered ? \`Fallback to Max Penalty! Rule ID: \${matchedRule.id}\` : \`Rule Matched! Rule ID: \${matchedRule.id}\`) : 'No Match Found. Safe.'}`);
+    logger.info(`⏱️ [SLA] 🔍 [SLA ENGINE] Step 3: Match Engine evaluated ➡️ ${matchedRule ? (fallbackTriggered ? `Fallback to Max Penalty! Rule ID: ${matchedRule.id}` : `Rule Matched! Rule ID: ${matchedRule.id}`) : 'No Match Found. Safe.'}`);
 
     // ── 4. Assign compensation ────────────────────────────────────────
     const compensationPct = matchedRule ? matchedRule.compensationPercentage : 0;
