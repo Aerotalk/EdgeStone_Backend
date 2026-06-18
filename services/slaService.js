@@ -470,8 +470,26 @@ async function calculateSla(slaId, downtimeMinutes, totalUptimeMinutes) {
     logger.info(`⏱️ [SLA] 📉 [SLA ENGINE] Step 2: Availability calculated dropping to ➡️ ${availability.toFixed(4)}% Out of ${totalUptimeMinutes}m`);
 
     // ── 3. Match rule ─────────────────────────────────────────────────
-    const matchedRule = sla.rules.find((r) => ruleMatches(r, availability)) || null;
-    logger.info(`⏱️ [SLA] 🔍 [SLA ENGINE] Step 3: Match Engine evaluated ➡️ ${matchedRule ? `Rule Matched! Rule ID: ${matchedRule.id}` : 'No Match Found. Safe.'}`);
+    let matchedRule = sla.rules.find((r) => ruleMatches(r, availability)) || null;
+    let fallbackTriggered = false;
+
+    if (!matchedRule && sla.rules.length > 0) {
+        const lowestBoundRule = sla.rules.reduce((min, r) => {
+            if (r.lowerLimit === null) return min;
+            if (min.lowerLimit === null) return r;
+            return r.lowerLimit < min.lowerLimit ? r : min;
+        }, sla.rules[0]);
+
+        if (lowestBoundRule.lowerLimit !== null && availability < lowestBoundRule.lowerLimit) {
+            matchedRule = sla.rules.reduce((max, r) => 
+                r.compensationPercentage > max.compensationPercentage ? r : max
+            , sla.rules[0]);
+            fallbackTriggered = true;
+            logger.info(`⏱️ [SLA] ⚠️ [SLA ENGINE] Availability (${availability.toFixed(4)}%) fell below lowest defined limit (${lowestBoundRule.lowerLimit}%). Applying max penalty fallback.`);
+        }
+    }
+
+    logger.info(`⏱️ [SLA] 🔍 [SLA ENGINE] Step 3: Match Engine evaluated ➡️ ${matchedRule ? (fallbackTriggered ? \`Fallback to Max Penalty! Rule ID: \${matchedRule.id}\` : \`Rule Matched! Rule ID: \${matchedRule.id}\`) : 'No Match Found. Safe.'}`);
 
     // ── 4. Assign compensation ────────────────────────────────────────
     const compensationPct = matchedRule ? matchedRule.compensationPercentage : 0;
@@ -480,8 +498,7 @@ async function calculateSla(slaId, downtimeMinutes, totalUptimeMinutes) {
     // ── 5. Determine status ───────────────────────────────────────────
     const newStatus = compensationPct > 0 ? 'BREACHED' : 'SAFE';
 
-    logger.info(`⏱️ [SLA] 📊 [SLA ENGINE] Final Payload - SLA ${slaId} ➡️  downtime=${newTotalDowntime}m 🧮 availability=${availability.toFixed(4)}% 🚨 status=${newStatus}`
-    );
+    logger.info(`⏱️ [SLA] 📊 [SLA ENGINE] Final Payload - SLA ${slaId} ➡️  downtime=${newTotalDowntime}m 🧮 availability=${availability.toFixed(4)}% 🚨 status=${newStatus}`);
 
     // ── 6. Persist + audit ────────────────────────────────────────────
     await prisma.$transaction(async (tx) => {
@@ -493,8 +510,9 @@ async function calculateSla(slaId, downtimeMinutes, totalUptimeMinutes) {
                 compensationAmount:   compensationPct,
                 status:               newStatus,
                 statusReason: matchedRule
-                    ? `Matched rule: ${matchedRule.lowerLimit ?? '∞'}–${matchedRule.upperLimit ?? '∞'}% `
-                      + `→ ${compensationPct}% compensation`
+                    ? (fallbackTriggered 
+                        ? `Availability fell below lowest rule. Applied max penalty: ${compensationPct}% compensation`
+                        : `Matched rule: ${matchedRule.lowerLimit ?? '∞'}–${matchedRule.upperLimit ?? '∞'}% → ${compensationPct}% compensation`)
                     : 'No rule matched; availability within acceptable range.',
             },
         });
