@@ -486,6 +486,14 @@ async function calculateSla(slaId, downtimeMinutes, totalUptimeMinutes) {
             , sla.rules[0]);
             fallbackTriggered = true;
             logger.info(`⏱️ [SLA] ⚠️ [SLA ENGINE] Availability (${availability.toFixed(4)}%) fell below lowest defined limit (${lowestBoundRule.lowerLimit}%). Applying max penalty fallback.`);
+        } else {
+            // Gap fallback logic: find the rule just ABOVE the current availability
+            const rulesAbove = sla.rules.filter(r => r.lowerLimit !== null && r.lowerLimit > availability);
+            if (rulesAbove.length > 0) {
+                matchedRule = rulesAbove.reduce((closest, r) => r.lowerLimit < closest.lowerLimit ? r : closest);
+                fallbackTriggered = true;
+                logger.info(`⏱️ [SLA] ⚠️ [SLA ENGINE] Availability (${availability.toFixed(4)}%) fell into a gap. Applying nearest higher tier penalty fallback (Rule lowerLimit: ${matchedRule.lowerLimit}%).`);
+            }
         }
     }
 
