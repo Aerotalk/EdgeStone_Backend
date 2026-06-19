@@ -34,16 +34,48 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
     // --- Sheet 1: Dashboard ---
     const dashboardSheet = workbook.addWorksheet('Financial Dashboard', { views: [{ showGridLines: false }] });
     
+    // Set column widths
+    dashboardSheet.columns = [
+        { header: '', key: 'colA', width: 5 },  // padding
+        { header: '', key: 'colB', width: 45 },
+        { header: '', key: 'colC', width: 30 },
+        { header: '', key: 'colD', width: 5 }   // padding
+    ];
+
     // Title
-    dashboardSheet.getCell('B2').value = 'SLA Financial & Performance Dashboard';
-    dashboardSheet.getCell('B2').font = { size: 20, bold: true, color: { argb: 'FF1F2937' } };
+    dashboardSheet.mergeCells('B2:C3');
+    const titleCell = dashboardSheet.getCell('B2');
+    titleCell.value = 'SLA Financial & Performance Dashboard';
+    titleCell.font = { size: 22, bold: true, color: { argb: 'FFFFFFFF' }, name: 'Calibri' };
+    titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } }; // Deep Blue
+    titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
     
-    // Dashboard Stats placeholders
-    dashboardSheet.getCell('B4').value = 'Total Tickets Analyzed:';
-    dashboardSheet.getCell('C4').value = records.length;
+    // Function to style a "Card" row
+    const styleCardRow = (rowNum) => {
+        dashboardSheet.getRow(rowNum).height = 40;
+        
+        const labelCell = dashboardSheet.getCell(`B${rowNum}`);
+        labelCell.font = { size: 14, bold: true, color: { argb: 'FF374151' }, name: 'Calibri' }; // Gray 700
+        labelCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+        labelCell.border = { left: { style: 'medium', color: { argb: 'FFD1D5DB' } }, top: { style: 'medium', color: { argb: 'FFD1D5DB' } }, bottom: { style: 'medium', color: { argb: 'FFD1D5DB' } } };
+        labelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } }; // Gray 100
+
+        const valueCell = dashboardSheet.getCell(`C${rowNum}`);
+        valueCell.font = { size: 16, bold: true, color: { argb: 'FF111827' }, name: 'Calibri' };
+        valueCell.alignment = { vertical: 'middle', horizontal: 'right', indent: 1 };
+        valueCell.border = { right: { style: 'medium', color: { argb: 'FFD1D5DB' } }, top: { style: 'medium', color: { argb: 'FFD1D5DB' } }, bottom: { style: 'medium', color: { argb: 'FFD1D5DB' } } };
+        valueCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } }; // White
+    };
+
+    // Card 1: Total Tickets
+    styleCardRow(5);
+    dashboardSheet.getCell('B5').value = 'Total Tickets Analyzed:';
+    dashboardSheet.getCell('C5').value = records.length;
     
-    dashboardSheet.getCell('B5').value = 'Report Generated At:';
-    dashboardSheet.getCell('C5').value = new Date().toLocaleString();
+    // Card 2: Generation Date
+    styleCardRow(7);
+    dashboardSheet.getCell('B7').value = 'Report Generated At:';
+    dashboardSheet.getCell('C7').value = new Date().toLocaleString();
 
     // We will use Data Bars via Conditional Formatting for Profits/Losses
     // But first, let's prepare the Detailed Data sheet
@@ -233,13 +265,16 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
         });
     }
 
-    // Populate Dashboard Data
-    dashboardSheet.getCell('B7').value = 'Total SLA Breaches:';
-    dashboardSheet.getCell('C7').value = breachedCount;
+    // Populate Dashboard Data using the new card styling
+    styleCardRow(9);
+    dashboardSheet.getCell('B9').value = 'Total SLA Breaches:';
+    dashboardSheet.getCell('C9').value = breachedCount;
+    dashboardSheet.getCell('C9').font = { size: 16, bold: true, color: { argb: breachedCount > 0 ? 'FFEF4444' : 'FF10B981' }, name: 'Calibri' }; // Red if > 0, else Green
 
-    dashboardSheet.getCell('B8').value = 'Overall Delta (Net Profit/Loss % Points):';
-    dashboardSheet.getCell('C8').value = totalDelta;
-    dashboardSheet.getCell('C8').font = { bold: true, color: { argb: totalDelta >= 0 ? 'FF10B981' : 'FFEF4444' } };
+    styleCardRow(11);
+    dashboardSheet.getCell('B11').value = 'Overall Delta (Net Profit/Loss % Points):';
+    dashboardSheet.getCell('C11').value = totalDelta;
+    dashboardSheet.getCell('C11').font = { size: 16, bold: true, color: { argb: totalDelta >= 0 ? 'FF10B981' : 'FFEF4444' }, name: 'Calibri' };
 
     return workbook;
 };
