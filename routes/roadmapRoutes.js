@@ -3,7 +3,7 @@ const router = express.Router();
 const { protect } = require('../middlewares/authMiddleware');
 const roadmapController = require('../controllers/roadmapController');
 
-router.get('/', protect, roadmapController.getRoadmap);
-router.post('/analyze', protect, roadmapController.analyzeRoadmap);
+router.get('/',roadmapController.getRoadmap);
+router.post('/analyze',roadmapController.analyzeRoadmap);
 
 module.exports = router;
