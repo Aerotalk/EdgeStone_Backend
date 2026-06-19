@@ -64,7 +64,9 @@ const getAllSLARecords = async ({ search, filter, customStart, customEnd, type }
             parsedStart = new Date(startRawStr);
             
             if (record.closeDate && record.closedTime) {
-                const endRawStr = `${record.closeDate} ${record.closedTime}`;
+                // Remove 'hrs' if present so that new Date() can parse correctly
+                const cleanClosedTime = record.closedTime.replace(/hrs/i, '').trim();
+                const endRawStr = `${record.closeDate} ${cleanClosedTime}`;
                 const parsedEnd = new Date(endRawStr);
                 
                 if (!isNaN(parsedStart.getTime()) && !isNaN(parsedEnd.getTime())) {

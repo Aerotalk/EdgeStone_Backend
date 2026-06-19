@@ -58,6 +58,7 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
         { header: 'Vendor Circuit ID', key: 'vendorCircuitId', width: 25 },
         { header: 'Start Date', key: 'startDate', width: 18 },
         { header: 'Close Date', key: 'closeDate', width: 18 },
+        { header: 'Total Month (Mins)', key: 'totalMins', width: 20 },
         { header: 'Downtime (Mins)', key: 'downtime', width: 18 },
         { header: 'Uptime (Mins)', key: 'uptime', width: 18 },
         { header: 'Availability (%)', key: 'availability', width: 18 },
@@ -69,8 +70,19 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
     ];
 
     // Style the header row
-    dataSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    dataSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF374151' } }; // Dark Gray
+    const headerRow = dataSheet.getRow(1);
+    headerRow.height = 30;
+    headerRow.eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12, name: 'Calibri' };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F2937' } }; // Deep Slate 800
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        cell.border = {
+            top: { style: 'medium', color: { argb: 'FF4B5563' } },
+            left: { style: 'thin', color: { argb: 'FF4B5563' } },
+            bottom: { style: 'medium', color: { argb: 'FF4B5563' } },
+            right: { style: 'thin', color: { argb: 'FF4B5563' } }
+        };
+    });
     dataSheet.autoFilter = 'A1:N1';
 
     // Group records by Ticket ID to pair VENDOR and CLIENT SLAs
@@ -111,6 +123,13 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
     let totalDelta = 0;
     let breachedCount = 0;
 
+    // SORT RECORDS: Professional SLA reports should be strictly sorted by Ticket ID (Descending)
+    records.sort((a, b) => {
+        const idA = parseInt(a.ticketId.replace(/[^0-9]/g, ''), 10) || 0;
+        const idB = parseInt(b.ticketId.replace(/[^0-9]/g, ''), 10) || 0;
+        return idB - idA;
+    });
+
     for (const record of records) {
         // Find the raw paired data
         const pairs = rawRecordsByTicketId[record.ticketId];
@@ -135,10 +154,12 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
         let vendorComp = 0;
 
         if (pairs && pairs.CLIENT) {
-            clientComp = parseFloat((pairs.CLIENT.compensation || '0').replace('%', '')) || 0;
+            const reasonMatch = (pairs.CLIENT.statusReason || '').match(/(\d+)%/);
+            clientComp = reasonMatch ? parseFloat(reasonMatch[1]) : (parseFloat((pairs.CLIENT.compensation || '0').replace(/[^0-9.]/g, '')) || 0);
         }
         if (pairs && pairs.VENDOR) {
-            vendorComp = parseFloat((pairs.VENDOR.compensation || '0').replace('%', '')) || 0;
+            const reasonMatch = (pairs.VENDOR.statusReason || '').match(/(\d+)%/);
+            vendorComp = reasonMatch ? parseFloat(reasonMatch[1]) : (parseFloat((pairs.VENDOR.compensation || '0').replace(/[^0-9.]/g, '')) || 0);
         }
 
         // Logic: If Vendor compensates us 60%, and we compensate Client 30%, we have a +30% profit delta.
@@ -156,6 +177,7 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
             vendorCircuitId,
             startDate: `${record.startDate} ${record.startTime}`,
             closeDate: record.closeDate ? `${record.closeDate} ${record.closedTime}` : 'Open',
+            totalMins: totalMonthMins,
             downtime: downtimeMins,
             uptime: uptimeMins,
             availability: parseFloat(availability),
@@ -164,6 +186,27 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
             delta: delta,
             reason: record.statusReason || 'Safe',
             status: record.status,
+        });
+
+        row.height = 25; // Give rows some breathing room
+
+        // Apply borders, alignment, and alternating background colors to all cells
+        row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            cell.font = { size: 11, name: 'Calibri', color: { argb: 'FF111827' } };
+            cell.border = {
+                top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+                left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+                bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+                right: { style: 'thin', color: { argb: 'FFE5E7EB' } }
+            };
+
+            // Alternating row colors (Zebra Striping)
+            if (row.number % 2 === 0) {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } }; // Light Gray
+            } else {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } }; // White
+            }
         });
 
         // Add conditional formatting specifically for delta
