@@ -16,42 +16,16 @@ exports.getAllSLARecords = async (req, res) => {
 exports.exportSLARecords = async (req, res) => {
     try {
         const { search, filter, customStart, customEnd, type } = req.query;
-        logger.debug('🐞 ⏱️ [SLA] 📝 Request received: exportSLARecords');
-        const data = await slaRecordService.getAllSLARecords({ search, filter, customStart, customEnd, type });
-
-        const headers = [
-            'Ticket ID',
-            'SLA Start Date',
-            'SLA Start Time',
-            'SLA Closed Time',
-            'SLA Close Date',
-            'Downtime',
-            'SLA Status',
-            'Status Reason',
-            'Compensation'
-        ];
-
-        const rows = data.map(record => [
-            record.ticketId,
-            record.displayStartDate,
-            record.startTime,
-            record.closedTime,
-            record.closeDate,
-            record.downtime,
-            record.status,
-            record.statusReason || '',
-            record.compensation
-        ]);
-
-        const csvContent = [
-            headers.join(','),
-            ...rows.map(row => row.map(cell => `"${cell || ''}"`).join(','))
-        ].join('\n');
-
-        res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', `attachment; filename="SLA_Report_${new Date().toISOString().split('T')[0]}.csv"`);
+        logger.debug('🐞 ⏱️ [SLA] 📝 Request received: exportSLARecords (Rich Excel)');
         
-        res.status(200).send(csvContent);
+        const excelExportService = require('../services/excelExportService');
+        const workbook = await excelExportService.generateRichSLAExcel({ search, filter, customStart, customEnd, type });
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="SLA_Financial_Report_${new Date().toISOString().split('T')[0]}.xlsx"`);
+        
+        await workbook.xlsx.write(res);
+        res.end();
     } catch (error) {
         logger.error('🚨 ⏱️ [SLA] ❌ Error exporting SLA records:', error);
         res.status(500).json({ success: false, message: 'Failed to export SLA records' });
