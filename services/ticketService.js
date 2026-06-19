@@ -431,16 +431,19 @@ const createTicketFromEmail = async (emailData) => {
             if (circuitId) {
                 const detectedCircuitRecord = allCircuits.find(c => c.customerCircuitId === circuitId || c.supplierCircuitId === circuitId);
                 if (detectedCircuitRecord) {
-                    if (detectedCircuitRecord.clientId && potentialClientIds.includes(detectedCircuitRecord.clientId)) {
-                        clientId = detectedCircuitRecord.clientId;
-                        ticketType = 'Client';
-                        vendorId = null;
-                        logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Client ${clientId} based on Circuit ${circuitId}`);
-                    } else if (detectedCircuitRecord.vendorId && potentialVendorIds.includes(detectedCircuitRecord.vendorId)) {
+                    // If the sender is explicitly the Vendor for this circuit, assign it as a Vendor ticket
+                    if (detectedCircuitRecord.vendorId && potentialVendorIds.includes(detectedCircuitRecord.vendorId)) {
                         vendorId = detectedCircuitRecord.vendorId;
                         ticketType = 'Vendor';
                         clientId = null;
                         logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Vendor ${vendorId} based on Circuit ${circuitId}`);
+                    } 
+                    // Otherwise, always assign it to the Client who owns the circuit (this handles internal employees forwarding emails)
+                    else if (detectedCircuitRecord.clientId) {
+                        clientId = detectedCircuitRecord.clientId;
+                        ticketType = 'Client';
+                        vendorId = null;
+                        logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Client ${clientId} based on Circuit ${circuitId}`);
                     }
                 }
             }
