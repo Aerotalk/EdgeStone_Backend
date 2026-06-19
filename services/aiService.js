@@ -443,7 +443,7 @@ const analyzeRoadmapState = async (roadmapData) => {
 
         return response.choices[0].message.content.trim();
     } catch (e) {
-        logger.error(\`🚨 [AI] Error analyzing roadmap state: \${e.message}\`);
+        logger.error(`🚨 [AI] Error analyzing roadmap state: ${e.message}`);
         return "AI analysis currently unavailable due to an error.";
     }
 };
