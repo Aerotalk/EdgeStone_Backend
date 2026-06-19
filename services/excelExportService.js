@@ -188,10 +188,12 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
         if (pairs && pairs.CLIENT) {
             const reasonMatch = (pairs.CLIENT.statusReason || '').match(/(\d+)%/);
             clientComp = reasonMatch ? parseFloat(reasonMatch[1]) : (parseFloat((pairs.CLIENT.compensation || '0').replace(/[^0-9.]/g, '')) || 0);
+            totalClientPenaltySum += parseFloat((pairs.CLIENT.compensation || '0').replace(/[^0-9.]/g, '')) || 0;
         }
         if (pairs && pairs.VENDOR) {
             const reasonMatch = (pairs.VENDOR.statusReason || '').match(/(\d+)%/);
             vendorComp = reasonMatch ? parseFloat(reasonMatch[1]) : (parseFloat((pairs.VENDOR.compensation || '0').replace(/[^0-9.]/g, '')) || 0);
+            totalVendorPenaltySum += parseFloat((pairs.VENDOR.compensation || '0').replace(/[^0-9.]/g, '')) || 0;
         }
 
         // Logic: If Vendor compensates us 60%, and we compensate Client 30%, we have a +30% profit delta.
@@ -241,19 +243,29 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
             }
         });
 
-        // Add conditional formatting specifically for delta
-        const deltaCell = row.getCell('L');
+        // Add conditional formatting specifically for delta (Column M is 13)
+        const deltaCell = row.getCell(13);
         if (delta > 0) {
             deltaCell.font = { color: { argb: 'FF10B981' }, bold: true }; // Green
         } else if (delta < 0) {
             deltaCell.font = { color: { argb: 'FFEF4444' }, bold: true }; // Red
         }
+
+        // Add conditional formatting for Status (Column O is 15)
+        const statusCell = row.getCell(15);
+        if (record.status === 'Safe' || record.status === 'SAFE') {
+            statusCell.font = { color: { argb: 'FF065F46' }, bold: true }; // Dark Green text
+            statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } }; // Light Green bg
+        } else if (record.status === 'Breached' || record.status === 'BREACHED') {
+            statusCell.font = { color: { argb: 'FF991B1B' }, bold: true }; // Dark Red text
+            statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } }; // Light Red bg
+        }
     }
 
-    // Apply Data Bars to Delta column (L)
+    // Apply Data Bars to Delta column (M)
     if (records.length > 0) {
         dataSheet.addConditionalFormatting({
-            ref: `L2:L${records.length + 1}`,
+            ref: `M2:M${records.length + 1}`,
             rules: [
                 {
                     type: 'dataBar',
@@ -269,12 +281,84 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
     styleCardRow(9);
     dashboardSheet.getCell('B9').value = 'Total SLA Breaches:';
     dashboardSheet.getCell('C9').value = breachedCount;
-    dashboardSheet.getCell('C9').font = { size: 16, bold: true, color: { argb: breachedCount > 0 ? 'FFEF4444' : 'FF10B981' }, name: 'Calibri' }; // Red if > 0, else Green
+    dashboardSheet.getCell('C9').font = { size: 16, bold: true, color: { argb: breachedCount > 0 ? 'FFEF4444' : 'FF10B981' }, name: 'Calibri' };
 
     styleCardRow(11);
     dashboardSheet.getCell('B11').value = 'Overall Delta (Net Profit/Loss % Points):';
-    dashboardSheet.getCell('C11').value = totalDelta;
+    dashboardSheet.getCell('C11').value = totalDelta + '%';
     dashboardSheet.getCell('C11').font = { size: 16, bold: true, color: { argb: totalDelta >= 0 ? 'FF10B981' : 'FFEF4444' }, name: 'Calibri' };
+
+    // Financial Data Points section
+    dashboardSheet.getCell('B14').value = 'Financial Profit / Loss Analysis';
+    dashboardSheet.getCell('B14').font = { size: 18, bold: true, color: { argb: 'FF1F2937' }, name: 'Calibri' };
+    
+    styleCardRow(16);
+    dashboardSheet.getCell('B16').value = 'Total Client Compensation Paid:';
+    dashboardSheet.getCell('C16').value = `$${totalClientPenaltySum.toFixed(2)}`;
+    dashboardSheet.getCell('C16').font = { size: 16, bold: true, color: { argb: 'FFEF4444' }, name: 'Calibri' }; // Red for paid
+
+    styleCardRow(18);
+    dashboardSheet.getCell('B18').value = 'Total Vendor Compensation Recv:';
+    dashboardSheet.getCell('C18').value = `$${totalVendorPenaltySum.toFixed(2)}`;
+    dashboardSheet.getCell('C18').font = { size: 16, bold: true, color: { argb: 'FF10B981' }, name: 'Calibri' }; // Green for received
+    
+    styleCardRow(20);
+    const netFinancials = totalVendorPenaltySum - totalClientPenaltySum;
+    dashboardSheet.getCell('B20').value = 'Net Financial Profit / Loss:';
+    dashboardSheet.getCell('C20').value = `$${netFinancials.toFixed(2)}`;
+    dashboardSheet.getCell('C20').font = { size: 18, bold: true, color: { argb: netFinancials >= 0 ? 'FF10B981' : 'FFEF4444' }, name: 'Calibri' };
+    dashboardSheet.getCell('C20').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: netFinancials >= 0 ? 'FFD1FAE5' : 'FFFEE2E2' } };
+
+    // Visual Data Points: Data bar chart in the cells for Top Breached tickets
+    dashboardSheet.getCell('B23').value = 'Data Points: Highest Value Circuit Breaches';
+    dashboardSheet.getCell('B23').font = { size: 14, bold: true, color: { argb: 'FF1F2937' }, name: 'Calibri' };
+
+    // Fetch and sort breached tickets by highest client penalty
+    const breachedData = records.filter(r => r.status === 'Breached' || r.status === 'BREACHED').map(r => {
+        const pairs = rawRecordsByTicketId[r.ticketId];
+        const clientVal = pairs && pairs.CLIENT ? parseFloat((pairs.CLIENT.compensation || '0').replace(/[^0-9.]/g, '')) || 0 : 0;
+        return { ticketId: r.ticketId, val: clientVal, ticketObj: ticketMap[r.ticketId] };
+    }).sort((a, b) => b.val - a.val).slice(0, 5);
+
+    dashboardSheet.getCell('B25').value = 'Ticket / Circuit ID';
+    dashboardSheet.getCell('C25').value = 'Client Penalty ($)';
+    dashboardSheet.getCell('B25').font = { bold: true };
+    dashboardSheet.getCell('C25').font = { bold: true };
+    dashboardSheet.getCell('B25').border = { bottom: { style: 'thin' } };
+    dashboardSheet.getCell('C25').border = { bottom: { style: 'thin' } };
+
+    let startRow = 26;
+    if (breachedData.length === 0) {
+        dashboardSheet.getCell(`B${startRow}`).value = 'No breaches recorded this period.';
+    } else {
+        breachedData.forEach(d => {
+            const cid = d.ticketObj ? d.ticketObj.circuitId : 'Unknown Circuit';
+            dashboardSheet.getCell(`B${startRow}`).value = `Ticket ${d.ticketId} (${cid})`;
+            dashboardSheet.getCell(`C${startRow}`).value = d.val;
+            
+            // Format as currency
+            dashboardSheet.getCell(`C${startRow}`).numFmt = '"$"#,##0.00';
+            dashboardSheet.getCell(`C${startRow}`).font = { color: { argb: 'FFEF4444' } };
+            
+            // Add light border
+            dashboardSheet.getCell(`B${startRow}`).border = { bottom: { style: 'hair', color: { argb: 'FFE5E7EB' } } };
+            dashboardSheet.getCell(`C${startRow}`).border = { bottom: { style: 'hair', color: { argb: 'FFE5E7EB' } } };
+            startRow++;
+        });
+        
+        // Add native exceljs databars to the top 5
+        dashboardSheet.addConditionalFormatting({
+            ref: `C26:C${startRow - 1}`,
+            rules: [
+                {
+                    type: 'dataBar',
+                    cfvo: [{ type: 'min' }, { type: 'max' }],
+                    color: { argb: 'FFEF4444' }, // Red data bars
+                    gradient: true
+                }
+            ]
+        });
+    }
 
     return workbook;
 };

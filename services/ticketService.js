@@ -27,6 +27,32 @@ const stripHtml = (str) => {
         .replace(/\n{3,}/g, '\n\n') // collapse excessive newlines
         .trim();
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// stripQuotedReply — Removes quoted email history from plain text email body.
+// ─────────────────────────────────────────────────────────────────────────────
+const stripQuotedReply = (text) => {
+    if (!text) return '';
+    
+    // 1. Outlook / Exchange Style
+    let idx = text.search(/From:\s.*?\nSent:\s/i);
+    if (idx !== -1) text = text.substring(0, idx);
+
+    // 2. Generic "Original Message" separator
+    idx = text.search(/-+\s*Original Message\s*-+/i);
+    if (idx !== -1) text = text.substring(0, idx);
+
+    // 3. Gmail Style "On [date], [name] wrote:"
+    // (We look for "On " followed by "wrote:" within a reasonable distance)
+    idx = text.search(/On\s+[\s\S]{10,150}?wrote:/i);
+    if (idx !== -1) text = text.substring(0, idx);
+    
+    // 4. Sometimes Outlook includes "________________________________" before From:
+    idx = text.search(/_{10,}/);
+    if (idx !== -1) text = text.substring(0, idx);
+
+    return text.trim();
+};
 // We need to circular dependency? emailService uses ticketService. 
 // ticketService needs emailService to send auto-reply. 
 // Standard pattern: pass emailService function or require it inside function to avoid top-level cyclic dependency if needed, 
@@ -153,8 +179,11 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
 
     logger.info(`🎟️ [TICKET] 📩 Appending client reply to existing Ticket ${ticket.ticketId} from ${from}`);
 
+    let replyText = stripHtml(body || html) || '(No Content)';
+    replyText = stripQuotedReply(replyText) || replyText; // fallback if stripping removes everything somehow
+
     const reply = await TicketModel.addReply(ticket.id, {
-        text: stripHtml(body || html) || '(No Content)',
+        text: replyText,
         time: emailReceivedDate.toLocaleTimeString('en-US', {
             hour: '2-digit',
             minute: '2-digit',
@@ -202,7 +231,8 @@ const appendVendorReplyToTicket = async (ticket, emailData) => {
 
     logger.info(`📝 [TICKET] 📥 Appending vendor reply to existing Ticket ${ticket.ticketId} from ${from}`);
 
-    const replyText = stripHtml(body || html) || '(No Content)';
+    let replyText = stripHtml(body || html) || '(No Content)';
+    replyText = stripQuotedReply(replyText) || replyText;
 
     const reply = await TicketModel.addReply(ticket.id, {
         text: replyText,
@@ -540,7 +570,7 @@ const createTicketFromEmail = async (emailData) => {
                 ticketType: ticketType,
                 replies: {
                     create: {
-                        text: stripHtml(body) || '(No Content)',
+                        text: stripQuotedReply(stripHtml(body)) || '(No Content)',
                         time: emailReceivedDate.toLocaleTimeString('en-US', {
                             hour: '2-digit',
                             minute: '2-digit',
