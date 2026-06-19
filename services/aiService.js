@@ -408,10 +408,51 @@ const generateBodyCircuitIdWarning = async (fromName, circuitId) => {
     }
 };
 
+/**
+ * Analyzes the current roadmap (circuits, tickets, SLAs) and returns a structured AI summary.
+ * @param {Object} roadmapData 
+ * @returns {Promise<string>}
+ */
+const analyzeRoadmapState = async (roadmapData) => {
+    if (!openai) {
+        return "AI analysis disabled. Missing OPENAI_API_KEY.";
+    }
+
+    try {
+        const prompt = `
+        You are "Keery", the intelligent network operations AI for EdgeStone.
+        You are looking at a live map of the company's network circuits, open support tickets, and SLA records.
+        
+        Analyze the following roadmap data and provide a concise, high-level "System Health Summary" for the agents.
+        Highlight:
+        1. Any critical hotspots (e.g., multiple open tickets on the same vendor or circuit).
+        2. Any breached or at-risk SLAs.
+        3. A general mood/health assessment (Healthy, Warning, Critical).
+        
+        Keep it brief, professional, and visually formatted with markdown emojis. Do not exceed 4-5 sentences or bullet points.
+        `;
+
+        const response = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [
+                { role: 'system', content: prompt },
+                { role: 'user', content: JSON.stringify(roadmapData) }
+            ],
+            temperature: 0.3,
+        });
+
+        return response.choices[0].message.content.trim();
+    } catch (e) {
+        logger.error(\`🚨 [AI] Error analyzing roadmap state: \${e.message}\`);
+        return "AI analysis currently unavailable due to an error.";
+    }
+};
+
 module.exports = {
    analyzeEmailForCircuitId,
    processChatbotQuery,
    extractSLAStartTimes,
    generateMissingCircuitIdReply,
-   generateBodyCircuitIdWarning
+   generateBodyCircuitIdWarning,
+   analyzeRoadmapState
 };

@@ -1,6 +1,7 @@
 const prisma = require('../utils/prisma');
 
 const logger = require('../utils/logger');
+const aiService = require('../services/aiService');
 
 exports.getRoadmap = async (req, res) => {
     try {
@@ -146,5 +147,23 @@ exports.getRoadmap = async (req, res) => {
     } catch (error) {
         logger.error('Error fetching roadmap:', error);
         res.status(500).json({ message: 'Error fetching roadmap data', error: error.message });
+    }
+};
+
+exports.analyzeRoadmap = async (req, res) => {
+    try {
+        const circuits = await prisma.circuit.findMany({
+            include: { client: true, vendor: true }
+        });
+        const tickets = await prisma.ticket.findMany({
+            where: { status: { not: 'Closed' } }, // Only analyze open/progress tickets for health
+            include: { slaRecords: true }
+        });
+
+        const analysis = await aiService.analyzeRoadmapState({ circuits, tickets });
+        res.status(200).json({ insight: analysis });
+    } catch (error) {
+        logger.error('Error analyzing roadmap:', error);
+        res.status(500).json({ message: 'Error generating AI insight', error: error.message });
     }
 };
