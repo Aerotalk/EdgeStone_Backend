@@ -107,8 +107,8 @@ exports.manualUpdate = async (req, res) => {
         const agentName = req.user ? req.user.name : 'Agent';
         logger.info(`⏱️ [SLA] 🔄 ${agentName} manually updating SLA ${id}`);
         
-        const { PrismaClient } = require('@prisma/client');
-        const prisma = new PrismaClient();
+        const prisma = require('../utils/prisma');
+        
         
         const existing = await prisma.sLARecord.findUnique({ where: { id } });
         if (!existing) {

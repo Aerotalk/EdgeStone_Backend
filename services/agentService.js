@@ -45,8 +45,8 @@ const getAgents = async (query) => {
     const agents = await AgentModel.findAllAgents();
     
     // Fetch signature connection status
-    const { PrismaClient } = require('@prisma/client');
-    const prisma = new PrismaClient();
+    const prisma = require('../utils/prisma');
+    
     
     const signaturesCount = await prisma.signature.groupBy({
         by: ['agentId'],

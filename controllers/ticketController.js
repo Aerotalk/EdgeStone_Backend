@@ -115,8 +115,8 @@ const toggleSla = async (req, res, next) => {
         
         // Assuming we just update the db model directly here or through ticketService
         // but for now, directly via prisma if ticketService doesn't have it
-        const { PrismaClient } = require('@prisma/client');
-        const prisma = new PrismaClient();
+        const prisma = require('../utils/prisma');
+        
         const updatedTicket = await prisma.ticket.update({
             where: { id },
             data: { isSlaActive }

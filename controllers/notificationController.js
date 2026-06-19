@@ -9,8 +9,8 @@ const streamNotifications = (req, res) => {
 
 const getNotifications = async (req, res) => {
     try {
-        const { PrismaClient } = require('@prisma/client');
-        const prisma = new PrismaClient();
+        const prisma = require('../utils/prisma');
+        
         const notifications = await prisma.notification.findMany({
             orderBy: { createdAt: 'desc' },
             take: 50 // Limit to last 50 for performance
@@ -23,8 +23,8 @@ const getNotifications = async (req, res) => {
 
 const markAsRead = async (req, res) => {
     try {
-        const { PrismaClient } = require('@prisma/client');
-        const prisma = new PrismaClient();
+        const prisma = require('../utils/prisma');
+        
         const { id } = req.params;
         const notification = await prisma.notification.update({
             where: { id },
@@ -38,8 +38,8 @@ const markAsRead = async (req, res) => {
 
 const markAllAsRead = async (req, res) => {
     try {
-        const { PrismaClient } = require('@prisma/client');
-        const prisma = new PrismaClient();
+        const prisma = require('../utils/prisma');
+        
         await prisma.notification.updateMany({
             where: { isRead: false },
             data: { isRead: true }

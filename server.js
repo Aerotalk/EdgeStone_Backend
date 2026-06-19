@@ -23,6 +23,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const path = require('path');
+const rateLimit = require('express-rate-limit');
 const { errorHandler } = require('./middlewares/errorHandler');
 const logger = require('./utils/logger');
 
@@ -35,9 +36,20 @@ dotenv.config();
 const app = express();
 
 // Middleware
-// Limit raised to 50MB to support signatures with embedded base64 images and attachments
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Limit reduced to 5MB to prevent memory exhaustion and DDOS under extreme load.
+// (For large attachments, client-side streaming or explicit multipart/form-data with multer is recommended instead of huge JSON bodies).
+app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ extended: true, limit: '5mb' }));
+
+// Apply rate limiting to all requests
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 2000, // Limit each IP to 2000 requests per 15 minutes
+    message: 'Too many requests from this IP, please try again after 15 minutes',
+    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+});
+app.use('/api', apiLimiter); // Apply only to /api routes
 
 // Dynamic CORS Configuration
 const allowedOrigins = [
@@ -217,13 +229,18 @@ if (require.main === module || process.env.NODE_ENV === 'production') {
         const server = app.listen(PORT, () => {
             logger.info(`🚀 Server running on port ${PORT}`);
 
-            // Start IMAP Listener for incoming emails
-            try {
-                const emailService = require('./services/emailService');
-                logger.info('📧 Initializing IMAP Listener...');
-                emailService.startImapListener();
-            } catch (err) {
-                logger.error('❌ Failed to start IMAP listener:', err);
+            // Start IMAP Listener for incoming emails - ONLY ON PRIMARY CLUSTER INSTANCE
+            // PM2 sets NODE_APP_INSTANCE for clustered apps (0, 1, 2...)
+            if (process.env.NODE_APP_INSTANCE === '0' || !process.env.NODE_APP_INSTANCE) {
+                try {
+                    const emailService = require('./services/emailService');
+                    logger.info('📧 Initializing IMAP Listener on primary instance...');
+                    emailService.startImapListener();
+                } catch (err) {
+                    logger.error('❌ Failed to start IMAP listener:', err);
+                }
+            } else {
+                logger.info(`🔄 Running as secondary worker instance (ID: ${process.env.NODE_APP_INSTANCE}). IMAP Listener disabled here.`);
             }
         });
 

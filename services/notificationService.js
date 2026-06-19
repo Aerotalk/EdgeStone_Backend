@@ -33,8 +33,8 @@ const sendNotification = async (data) => {
     logger.info(`🔔 [NOTIFICATIONS] Sending event: ${data.type}`);
     
     try {
-        const { PrismaClient } = require('@prisma/client');
-        const prisma = new PrismaClient();
+        const prisma = require('../utils/prisma');
+        
         
         // Save to DB
         const savedNotif = await prisma.notification.create({

@@ -1,5 +1,5 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../utils/prisma');
+
 const logger = require('../utils/logger');
 
 exports.getRoadmap = async (req, res) => {
@@ -101,7 +101,7 @@ exports.getRoadmap = async (req, res) => {
                             status: sla.status,
                             details: sla
                         },
-                        position: { x: x + (index * (spacingX / 2)) - 50 + (slaIndex * 100), y + spacingY },
+                        position: { x: x + (index * (spacingX / 2)) - 50 + (slaIndex * 100), y: y + spacingY },
                         style: { backgroundColor: slaColor, border: `2px solid ${slaBorder}`, borderRadius: '8px', padding: '10px' }
                     });
 
@@ -124,7 +124,7 @@ exports.getRoadmap = async (req, res) => {
                         label: `Replies: ${ticket._count.replies}`,
                         type: 'conversation'
                     },
-                    position: { x: x + (index * (spacingX / 2)) + 50, y + spacingY * 1.5 },
+                    position: { x: x + (index * (spacingX / 2)) + 50, y: y + spacingY * 1.5 },
                     style: { backgroundColor: '#f3e8ff', border: '1px solid #c084fc', borderRadius: '8px', padding: '10px' }
                 });
 
