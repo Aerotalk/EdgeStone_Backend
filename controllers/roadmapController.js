@@ -4,8 +4,13 @@ const logger = require('../utils/logger');
 
 exports.getRoadmap = async (req, res) => {
     try {
-        // Fetch all circuits
-        const circuits = await prisma.circuit.findMany();
+        // Fetch all circuits with their clients and vendors
+        const circuits = await prisma.circuit.findMany({
+            include: {
+                client: true,
+                vendor: true
+            }
+        });
 
         // Fetch all tickets with SLA records and Replies count
         const tickets = await prisma.ticket.findMany({
@@ -33,7 +38,7 @@ exports.getRoadmap = async (req, res) => {
                 id: `circuit-${circuit.id}`,
                 type: 'default',
                 data: {
-                    label: `Circuit: ${circuit.customerCircuitId || circuit.id}`,
+                    label: `Circuit: ${circuit.customerCircuitId}\nSupplier ID: ${circuit.supplierCircuitId}\n\nClient: ${circuit.client?.name || 'N/A'}\nClient Emails: ${circuit.client?.emails?.join(', ') || 'N/A'}\n\nVendor: ${circuit.vendor?.name || 'N/A'}\nVendor Emails: ${circuit.vendor?.emails?.join(', ') || 'N/A'}`,
                     type: 'circuit',
                     status: circuit.type, // PROTECTED | UNPROTECTED
                     details: circuit
