@@ -176,17 +176,19 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
     }
 
     // Apply Data Bars to Delta column (L)
-    dataSheet.addConditionalFormatting({
-        ref: `L2:L${records.length + 1}`,
-        rules: [
-            {
-                type: 'dataBar',
-                cfvo: [{ type: 'auto', value: null }, { type: 'auto', value: null }],
-                color: { argb: 'FF3B82F6' }, // Blue data bars
-                gradient: true
-            }
-        ]
-    });
+    if (records.length > 0) {
+        dataSheet.addConditionalFormatting({
+            ref: `L2:L${records.length + 1}`,
+            rules: [
+                {
+                    type: 'dataBar',
+                    cfvo: [{ type: 'min' }, { type: 'max' }],
+                    color: { argb: 'FF3B82F6' }, // Blue data bars
+                    gradient: true
+                }
+            ]
+        });
+    }
 
     // Populate Dashboard Data
     dashboardSheet.getCell('B7').value = 'Total SLA Breaches:';
