@@ -2,36 +2,6 @@ const prisma = require('../models/index');
 const logger = require('../utils/logger');
 
 const getAllSLARecords = async ({ search, filter, customStart, customEnd, type } = {}) => {
-    // --- BACKFILL: Ensure EVERY ticket has a corresponding SLA record ---
-    const allTickets = await prisma.ticket.findMany();
-    const existingRecords = await prisma.sLARecord.findMany();
-    const existingTicketIds = new Set(existingRecords.map(r => r.ticketId));
-
-    let createdAny = false;
-    for (const ticket of allTickets) {
-        if (!existingTicketIds.has(ticket.id)) {
-            const baseTime = new Date(ticket.receivedAt || ticket.createdAt || new Date());
-            const slaStart = new Date(baseTime.getTime() + 60000); 
-            const startDateStr = slaStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
-            const startTimeStr = slaStart.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' });
-
-            await prisma.sLARecord.create({
-                data: {
-                    ticketId: ticket.id,
-                    startDate: startDateStr,
-                    startTime: startTimeStr,
-                    status: 'Safe',
-                    compensation: '-',
-                    statusReason: ''
-                }
-            });
-            createdAny = true;
-        }
-    }
-
-    if (createdAny) {
-        logger.info('⏱️ [SLA] ✨ Retroactively provisioned SLA records for older tickets missing them.');
-    }
 
     let queryWhere = {};
     if (type) {
