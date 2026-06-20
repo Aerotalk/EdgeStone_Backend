@@ -52,6 +52,7 @@ const getAllSLARecords = async ({ search, filter, customStart, customEnd, type }
             startDate: record.startDate,
             displayStartDate: record.startDate, // Native format passed safely
             startTime: record.startTime,
+            timeZone: record.timeZone || 'UTC',
             closedTime: record.closedTime || '-',
             closeDate: record.closeDate || '-',
             status: record.status, 
