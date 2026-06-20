@@ -16,7 +16,10 @@ const getAllSLARecords = async ({ search, filter, customStart, customEnd, type }
         include: {
             ticket: {
                 select: {
-                    ticketId: true
+                    ticketId: true,
+                    circuitId: true,
+                    client: { select: { name: true } },
+                    vendor: { select: { name: true } }
                 }
             }
         },
@@ -49,6 +52,9 @@ const getAllSLARecords = async ({ search, filter, customStart, customEnd, type }
         return {
             id: record.id,
             ticketId: record.ticket?.ticketId || 'Unknown',
+            circuitId: record.ticket?.circuitId || '-',
+            clientName: record.ticket?.client?.name || '-',
+            vendorName: record.ticket?.vendor?.name || '-',
             startDate: record.startDate,
             displayStartDate: record.startDate, // Native format passed safely
             startTime: record.startTime,
