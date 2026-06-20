@@ -28,6 +28,29 @@ const getAllSLARecords = async ({ search, filter, customStart, customEnd, type }
         }
     });
 
+    const circuitIdsToFetch = [...new Set(slaRecords.map(r => r.ticket?.circuitId).filter(Boolean))];
+    let circuits = [];
+    if (circuitIdsToFetch.length > 0) {
+        circuits = await prisma.circuit.findMany({
+            where: {
+                OR: [
+                    { customerCircuitId: { in: circuitIdsToFetch } },
+                    { supplierCircuitId: { in: circuitIdsToFetch } }
+                ]
+            },
+            include: {
+                client: { select: { name: true } },
+                vendor: { select: { name: true } }
+            }
+        });
+    }
+
+    const circuitMap = {};
+    for (const c of circuits) {
+        if (c.customerCircuitId) circuitMap[c.customerCircuitId] = c;
+        if (c.supplierCircuitId) circuitMap[c.supplierCircuitId] = c;
+    }
+
     let mapped = slaRecords.map(record => {
         let downtimeStr = '-';
         let parsedStart = null;
@@ -49,12 +72,26 @@ const getAllSLARecords = async ({ search, filter, customStart, customEnd, type }
             }
         }
 
+        const circuit = circuitMap[record.ticket?.circuitId];
+        let displayCircuitId = record.ticket?.circuitId || '-';
+        
+        if (circuit) {
+            if (record.type === 'VENDOR' && circuit.supplierCircuitId) {
+                displayCircuitId = circuit.supplierCircuitId;
+            } else if (record.type === 'CLIENT' && circuit.customerCircuitId) {
+                displayCircuitId = circuit.customerCircuitId;
+            }
+        }
+
+        const clientName = circuit?.client?.name || record.ticket?.client?.name || '-';
+        const vendorName = circuit?.vendor?.name || record.ticket?.vendor?.name || '-';
+
         return {
             id: record.id,
             ticketId: record.ticket?.ticketId || 'Unknown',
-            circuitId: record.ticket?.circuitId || '-',
-            clientName: record.ticket?.client?.name || '-',
-            vendorName: record.ticket?.vendor?.name || '-',
+            circuitId: displayCircuitId,
+            clientName: clientName,
+            vendorName: vendorName,
             startDate: record.startDate,
             displayStartDate: record.startDate, // Native format passed safely
             startTime: record.startTime,
