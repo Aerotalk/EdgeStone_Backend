@@ -1,11 +1,10 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
+const slaRecordService = require('./services/slaRecordService');
+
 async function run() {
-    const t = await prisma.ticket.findFirst({
-        where: { ticketId: '#1061' },
-        include: { replies: true }
-    });
-    console.log(JSON.stringify(t, null, 2));
+    const records = await slaRecordService.getAllSLARecords({ search: '#1075' });
+    console.log(JSON.stringify(records, null, 2));
 }
 run().catch(console.error).finally(() => prisma.$disconnect());

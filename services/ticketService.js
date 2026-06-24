@@ -281,7 +281,7 @@ const appendVendorReplyToTicket = async (ticket, emailData) => {
                     ticketId: ticket.id,
                     type: 'VENDOR',
                     startDate: slaStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }),
-                    startTime: slaStart.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' }),
+                    startTime: slaStart.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23', timeZone: 'Asia/Kolkata' }).replace(/^24:/, '00:'),
                     status: 'Safe',
                     compensation: '-',
                     statusReason: 'Vendor SLA started on first vendor reply'
@@ -837,7 +837,7 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
                         ticketId: ticket.id,
                         type: 'CLIENT',
                         startDate: slaStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }),
-                        startTime: slaStart.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' }),
+                        startTime: slaStart.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23', timeZone: 'Asia/Kolkata' }).replace(/^24:/, '00:'),
                         status: 'Safe',
                         compensation: '-',
                         statusReason: 'Client SLA started'
@@ -971,15 +971,17 @@ const updateTicket = async (ticketId, updates, agentName) => {
                 // 1. Close the SLA record
                 const nowClosed = new Date();
                 const closeDate = nowClosed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-                const closedTime = nowClosed.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' hrs';
+                const closedTime = nowClosed.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23' }).replace(/^24:/, '00:') + ' hrs';
                 
                 const slaRecordService = require('./slaRecordService');
                 const updatedSlaRecord = await slaRecordService.updateSLAClosure(ticket.id, closeDate, closedTime);
                 
                 // 2. Calculate the specific ticket's downtime
                 if (updatedSlaRecord && updatedSlaRecord.startDate && updatedSlaRecord.startTime) {
-                    const startStr = `${updatedSlaRecord.startDate} ${updatedSlaRecord.startTime.replace(' hrs', '')}`;
-                    const endStr = `${updatedSlaRecord.closeDate} ${updatedSlaRecord.closedTime.replace(' hrs', '')}`;
+                    const cleanStartTime = updatedSlaRecord.startTime.replace(/hrs/i, '').trim().replace(/^24:/, '00:');
+                    const cleanClosedTime = updatedSlaRecord.closedTime.replace(/hrs/i, '').trim().replace(/^24:/, '00:');
+                    const startStr = `${updatedSlaRecord.startDate} ${cleanStartTime}`;
+                    const endStr = `${updatedSlaRecord.closeDate} ${cleanClosedTime}`;
                     const sTime = new Date(startStr);
                     const eTime = new Date(endStr);
                     

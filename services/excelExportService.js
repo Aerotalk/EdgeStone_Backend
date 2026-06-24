@@ -93,10 +93,15 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
         { header: 'Total Month (Mins)', key: 'totalMins', width: 20 },
         { header: 'Downtime (Mins)', key: 'downtime', width: 18 },
         { header: 'Uptime (Mins)', key: 'uptime', width: 18 },
+        { header: 'Downtime (%)', key: 'downtimePct', width: 18 },
         { header: 'Availability (%)', key: 'availability', width: 18 },
-        { header: 'Client Compensation %', key: 'clientComp', width: 22 },
-        { header: 'Vendor Compensation %', key: 'vendorComp', width: 22 },
-        { header: 'Loss / Profit Delta %', key: 'delta', width: 22 },
+        { header: 'Client Comp (%)', key: 'clientCompPct', width: 18 },
+        { header: 'Client Penalty ($)', key: 'clientComp', width: 18 },
+        { header: 'Vendor Comp (%)', key: 'vendorCompPct', width: 18 },
+        { header: 'Vendor Penalty ($)', key: 'vendorComp', width: 18 },
+        { header: 'Loss / Profit Delta ($)', key: 'delta', width: 25 },
+        { header: 'Circuit SLA Rules', key: 'rulesText', width: 50 },
+        { header: 'Calculation Logic', key: 'calc', width: 80 },
         { header: 'Rule Hit / Reason', key: 'reason', width: 35 },
         { header: 'Status', key: 'status', width: 15 },
     ];
@@ -115,7 +120,7 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
             right: { style: 'thin', color: { argb: 'FF4B5563' } }
         };
     });
-    dataSheet.autoFilter = 'A1:N1';
+    dataSheet.autoFilter = 'A1:T1';
 
     // Group records by Ticket ID to pair VENDOR and CLIENT SLAs
     const groupedByTicket = records.reduce((acc, r) => {
@@ -127,20 +132,6 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
     let totalClientPenaltySum = 0;
     let totalVendorPenaltySum = 0;
 
-    for (const [tId, tRecords] of Object.entries(groupedByTicket)) {
-        const ticket = ticketMap[tId];
-        const circuit = ticket ? circuitMap[ticket.circuitId] : null;
-
-        const customerCircuitId = circuit ? circuit.customerCircuitId : 'N/A';
-        const vendorCircuitId = circuit ? (circuit.supplierCircuitId || 'N/A') : 'N/A';
-
-        // Find Client and Vendor specific records
-        // Note: the `slaRecordsService.getAllSLARecords` doesn't expose the `type` in the mapped object directly unless we add it!
-        // We'll need to re-fetch the raw records or just guess from the overall DB
-        // Let's fetch raw SLARecords for these tickets to get the exact `type`
-    }
-
-    // ACTUALLY, let's just query SLARecords directly here to have full control over data shape
     const allRawRecords = await prisma.sLARecord.findMany({
         where: { ticketId: { in: Object.keys(ticketMap).map(k => ticketMap[k].id) } },
         include: { ticket: true }
@@ -151,6 +142,12 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
         acc[r.ticket.ticketId][r.type] = r;
         return acc;
     }, {});
+
+    // Fetch SLA definitions for rules
+    const slas = await prisma.sla.findMany({
+        where: { circuitId: { in: circuitIds } },
+        include: { rules: { orderBy: { lowerLimit: 'asc' } } }
+    });
 
     let totalDelta = 0;
     let breachedCount = 0;
@@ -180,33 +177,62 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
 
         const totalMonthMins = 43200; // 30 days
         const uptimeMins = Math.max(totalMonthMins - downtimeMins, 0);
-        const availability = ((uptimeMins / totalMonthMins) * 100).toFixed(4);
+        const availability = parseFloat(((uptimeMins / totalMonthMins) * 100).toFixed(4));
+        const downtimePct = parseFloat((100 - availability).toFixed(4));
 
-        let clientComp = 0;
-        let vendorComp = 0;
+        let clientCompPct = 0, clientCompUsd = 0;
+        let vendorCompPct = 0, vendorCompUsd = 0;
 
         if (pairs && pairs.CLIENT) {
             const reasonMatch = (pairs.CLIENT.statusReason || '').match(/(\d+)%/);
-            clientComp = reasonMatch ? parseFloat(reasonMatch[1]) : (parseFloat((pairs.CLIENT.compensation || '0').replace(/[^0-9.]/g, '')) || 0);
-            totalClientPenaltySum += parseFloat((pairs.CLIENT.compensation || '0').replace(/[^0-9.]/g, '')) || 0;
+            clientCompPct = reasonMatch ? parseFloat(reasonMatch[1]) : 0;
+            clientCompUsd = parseFloat((pairs.CLIENT.compensation || '0').replace(/[^0-9.]/g, '')) || 0;
+            totalClientPenaltySum += clientCompUsd;
         }
         if (pairs && pairs.VENDOR) {
             const reasonMatch = (pairs.VENDOR.statusReason || '').match(/(\d+)%/);
-            vendorComp = reasonMatch ? parseFloat(reasonMatch[1]) : (parseFloat((pairs.VENDOR.compensation || '0').replace(/[^0-9.]/g, '')) || 0);
-            totalVendorPenaltySum += parseFloat((pairs.VENDOR.compensation || '0').replace(/[^0-9.]/g, '')) || 0;
+            vendorCompPct = reasonMatch ? parseFloat(reasonMatch[1]) : 0;
+            vendorCompUsd = parseFloat((pairs.VENDOR.compensation || '0').replace(/[^0-9.]/g, '')) || 0;
+            totalVendorPenaltySum += vendorCompUsd;
         }
 
-        // Logic: If Vendor compensates us 60%, and we compensate Client 30%, we have a +30% profit delta.
-        const delta = vendorComp - clientComp;
+        const delta = vendorCompUsd - clientCompUsd;
         totalDelta += delta;
 
         if (record.status === 'Breached' || record.status === 'BREACHED') {
             breachedCount++;
         }
 
+        const slaTypeEnum = pairs && pairs.CLIENT && pairs.CLIENT.id === record.id ? 'CLIENT' : (pairs && pairs.VENDOR && pairs.VENDOR.id === record.id ? 'VENDOR' : 'UNKNOWN');
+        const slaAppliesTo = slaTypeEnum === 'CLIENT' ? 'CUSTOMER' : 'VENDOR';
+        
+        let rulesText = 'No rules defined';
+        const matchedSla = circuit ? slas.find(s => s.circuitId === circuit.id && s.appliesTo === slaAppliesTo) : null;
+        if (matchedSla && matchedSla.rules && matchedSla.rules.length > 0) {
+            rulesText = matchedSla.rules.map(r => {
+                let lim = '';
+                if (r.lowerLimit !== null && r.upperLimit !== null) lim = `${r.lowerLimit}%-${r.upperLimit}%`;
+                else if (r.lowerLimit !== null) lim = `>${r.lowerLimit}%`;
+                else if (r.upperLimit !== null) lim = `<${r.upperLimit}%`;
+                return `[${lim}: ${r.compensationPercentage}%]`;
+            }).join(' | ');
+        }
+
+        let mrcUsed = slaTypeEnum === 'VENDOR' ? (circuit ? circuit.supplierMrc : 0) : (circuit ? circuit.mrc : 0);
+        const mrcName = slaTypeEnum === 'VENDOR' ? 'Supplier MRC' : 'Customer MRC';
+        let compPctUsed = slaTypeEnum === 'VENDOR' ? vendorCompPct : clientCompPct;
+        let compUsdUsed = slaTypeEnum === 'VENDOR' ? vendorCompUsd : clientCompUsd;
+        
+        let calcText = `MRC (${mrcName}) = $${mrcUsed || 0} | Downtime = ${downtimeMins}m | Avail = ${availability}% | `;
+        if (compPctUsed > 0) {
+            calcText += `Rule Hit -> ${compPctUsed}% Penalty | Payout = $${compUsdUsed.toFixed(2)}`;
+        } else {
+            calcText += `Rule Hit -> Safe | Payout = $0.00`;
+        }
+
         const row = dataSheet.addRow({
             ticketId: record.ticketId,
-            type: pairs && pairs.CLIENT && pairs.CLIENT.id === record.id ? 'CLIENT' : (pairs && pairs.VENDOR && pairs.VENDOR.id === record.id ? 'VENDOR' : 'UNKNOWN'),
+            type: slaTypeEnum,
             customerCircuitId,
             vendorCircuitId,
             startDate: `${record.startDate} ${record.startTime}`,
@@ -214,10 +240,15 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
             totalMins: totalMonthMins,
             downtime: downtimeMins,
             uptime: uptimeMins,
-            availability: parseFloat(availability),
-            clientComp: clientComp,
-            vendorComp: vendorComp,
+            downtimePct: downtimePct,
+            availability: availability,
+            clientCompPct: clientCompPct,
+            clientComp: clientCompUsd,
+            vendorCompPct: vendorCompPct,
+            vendorComp: vendorCompUsd,
             delta: delta,
+            rulesText: rulesText,
+            calc: calcText,
             reason: record.statusReason || 'Safe',
             status: record.status,
         });
@@ -225,6 +256,8 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
         row.height = 25; // Give rows some breathing room
 
         // Apply borders, alignment, and alternating background colors to all cells
+        const isBreached = record.status === 'Breached' || record.status === 'BREACHED';
+        
         row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
             cell.alignment = { vertical: 'middle', horizontal: 'center' };
             cell.font = { size: 11, name: 'Calibri', color: { argb: 'FF111827' } };
@@ -235,37 +268,34 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
                 right: { style: 'thin', color: { argb: 'FFE5E7EB' } }
             };
 
-            // Alternating row colors (Zebra Striping)
-            if (row.number % 2 === 0) {
-                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } }; // Light Gray
+            // Color code entire row based on status
+            if (isBreached) {
+                // Light Red background for breached
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+                // Keep font standard but let's make it dark red for the status cell later
             } else {
-                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } }; // White
+                // Light Green background for safe
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
             }
         });
 
-        // Add conditional formatting specifically for delta (Column M is 13)
-        const deltaCell = row.getCell(13);
+        // Add conditional formatting specifically for delta (Column P is 16)
+        const deltaCell = row.getCell(16);
         if (delta > 0) {
             deltaCell.font = { color: { argb: 'FF10B981' }, bold: true }; // Green
         } else if (delta < 0) {
             deltaCell.font = { color: { argb: 'FFEF4444' }, bold: true }; // Red
         }
 
-        // Add conditional formatting for Status (Column O is 15)
-        const statusCell = row.getCell(15);
-        if (record.status === 'Safe' || record.status === 'SAFE') {
-            statusCell.font = { color: { argb: 'FF065F46' }, bold: true }; // Dark Green text
-            statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } }; // Light Green bg
-        } else if (record.status === 'Breached' || record.status === 'BREACHED') {
-            statusCell.font = { color: { argb: 'FF991B1B' }, bold: true }; // Dark Red text
-            statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } }; // Light Red bg
-        }
+        // Add bold formatting for Status (Column T is 20)
+        const statusCell = row.getCell(20);
+        statusCell.font = Object.assign({}, statusCell.font, { bold: true, color: isBreached ? { argb: 'FF991B1B' } : { argb: 'FF065F46' } });
     }
 
-    // Apply Data Bars to Delta column (M)
+    // Apply Data Bars to Delta column (P is 16)
     if (records.length > 0) {
         dataSheet.addConditionalFormatting({
-            ref: `M2:M${records.length + 1}`,
+            ref: `P2:P${records.length + 1}`,
             rules: [
                 {
                     type: 'dataBar',

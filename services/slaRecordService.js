@@ -56,12 +56,13 @@ const getAllSLARecords = async ({ search, filter, customStart, customEnd, type }
         let parsedStart = null;
         
         if (record.startDate && record.startTime) {
-            const startRawStr = `${record.startDate} ${record.startTime}`;
+            const cleanStartTime = record.startTime.replace(/hrs/i, '').trim().replace(/^24:/, '00:');
+            const startRawStr = `${record.startDate} ${cleanStartTime}`;
             parsedStart = new Date(startRawStr);
             
             if (record.closeDate && record.closedTime) {
                 // Remove 'hrs' if present so that new Date() can parse correctly
-                const cleanClosedTime = record.closedTime.replace(/hrs/i, '').trim();
+                const cleanClosedTime = record.closedTime.replace(/hrs/i, '').trim().replace(/^24:/, '00:');
                 const endRawStr = `${record.closeDate} ${cleanClosedTime}`;
                 const parsedEnd = new Date(endRawStr);
                 
@@ -190,8 +191,10 @@ const updateSLAClosure = async (id, closeDate, closedTime) => {
     // ── Auto-trigger compensation engine when closure times are set ──────────
     // This covers the sidebar manual close flow (not just status → Closed)
     try {
-        const startStr = `${existingRecord.startDate} ${(existingRecord.startTime || '').replace(' hrs', '')}`;
-        const endStr   = `${closeDate} ${(closedTime || '').replace(' hrs', '')}`;
+        const cleanStartTime = (existingRecord.startTime || '').replace(/hrs/i, '').trim().replace(/^24:/, '00:');
+        const cleanClosedTime = (closedTime || '').replace(/hrs/i, '').trim().replace(/^24:/, '00:');
+        const startStr = `${existingRecord.startDate} ${cleanStartTime}`;
+        const endStr   = `${closeDate} ${cleanClosedTime}`;
         const sTime = new Date(startStr);
         const eTime = new Date(endStr);
 
