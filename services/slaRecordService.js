@@ -175,106 +175,119 @@ const createSLARecord = async (data) => {
 };
 
 const updateSLAClosure = async (id, closeDate, closedTime) => {
-    const existingRecord = await prisma.sLARecord.findUnique({ 
-        where: { id },
+    const existingRecords = await prisma.sLARecord.findMany({ 
+        where: { 
+            OR: [
+                { id: id },
+                { ticketId: id }
+            ]
+        },
         include: { ticket: { select: { id: true, ticketId: true, circuitId: true } } }
     });
-    if (!existingRecord) {
+
+    if (!existingRecords || existingRecords.length === 0) {
         throw new Error('SLA record not found');
     }
 
-    const updated = await prisma.sLARecord.update({
-        where: { id },
-        data: { closeDate, closedTime }
-    });
+    const updatedRecords = [];
 
-    // ── Auto-trigger compensation engine when closure times are set ──────────
-    // This covers the sidebar manual close flow (not just status → Closed)
-    try {
-        const cleanStartTime = (existingRecord.startTime || '').replace(/hrs/i, '').trim().replace(/^24:/, '00:');
-        const cleanClosedTime = (closedTime || '').replace(/hrs/i, '').trim().replace(/^24:/, '00:');
-        const startStr = `${existingRecord.startDate} ${cleanStartTime}`;
-        const endStr   = `${closeDate} ${cleanClosedTime}`;
-        const sTime = new Date(startStr);
-        const eTime = new Date(endStr);
+    for (const existingRecord of existingRecords) {
+        const updated = await prisma.sLARecord.update({
+            where: { id: existingRecord.id },
+            data: { closeDate, closedTime }
+        });
 
-        if (!isNaN(sTime.getTime()) && !isNaN(eTime.getTime())) {
-            const diffMins = Math.round((eTime.getTime() - sTime.getTime()) / 60000);
-            logger.info(`⏱️ [SLA] ⏱️ [SLA Closure] Downtime for Ticket ${existingRecord.ticket?.ticketId}: ${diffMins} mins`);
+        // ── Auto-trigger compensation engine when closure times are set ──────────
+        try {
+            const cleanStartTime = (existingRecord.startTime || '').replace(/hrs/i, '').trim().replace(/^24:/, '00:');
+            const cleanClosedTime = (closedTime || '').replace(/hrs/i, '').trim().replace(/^24:/, '00:');
+            const startStr = `${existingRecord.startDate} ${cleanStartTime}`;
+            const endStr   = `${closeDate} ${cleanClosedTime}`;
+            const sTime = new Date(startStr);
+            const eTime = new Date(endStr);
 
-            const circuitId = existingRecord.ticket?.circuitId;
-            if (circuitId && diffMins > 0) {
-                const circuit = await prisma.circuit.findFirst({
-                    where: {
-                        OR: [
-                            { customerCircuitId: circuitId },
-                            { supplierCircuitId: circuitId }
-                        ]
-                    },
-                    select: { id: true, mrc: true, supplierMrc: true }
-                });
+            if (!isNaN(sTime.getTime()) && !isNaN(eTime.getTime())) {
+                const diffMins = Math.round((eTime.getTime() - sTime.getTime()) / 60000);
+                logger.info(`⏱️ [SLA] ⏱️ [SLA Closure] Downtime for Ticket ${existingRecord.ticket?.ticketId} (${existingRecord.type}): ${diffMins} mins`);
 
-                if (circuit) {
-                    const circuitSlas = await prisma.sla.findMany({ 
-                        where: { 
-                            circuitId: circuit.id,
-                            appliesTo: { in: existingRecord.type === 'CLIENT' ? ['CLIENT', 'CUSTOMER'] : ['VENDOR'] }
-                        } 
+                const circuitId = existingRecord.ticket?.circuitId;
+                if (circuitId && diffMins > 0) {
+                    const circuit = await prisma.circuit.findFirst({
+                        where: {
+                            OR: [
+                                { customerCircuitId: circuitId },
+                                { supplierCircuitId: circuitId }
+                            ]
+                        },
+                        select: { id: true, mrc: true, supplierMrc: true }
                     });
 
-                    if (circuitSlas.length > 0) {
-                        const slaService = require('./slaService');
-                        const now = new Date();
-                        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-                        const totalUptimeMinutes = daysInMonth * 24 * 60;
-
-                        let highestCompensation = 0;
-                        let highestStatus = 'SAFE';
-                        for (const s of circuitSlas) {
-                            const result = await slaService.calculateSla(s.id, diffMins, totalUptimeMinutes);
-                            if (result.compensationAmount > highestCompensation) {
-                                highestCompensation = result.compensationAmount;
-                                highestStatus = result.status;
-                            }
-                        }
-
-                        let compensationDisplay = '-';
-                        if (highestCompensation > 0) {
-                            // Use customer MRC or supplier MRC depending on the ticket type/SLA context. 
-                            // Currently defaulting to circuit.mrc. Could also be circuit.supplierMrc.
-                            const baseMrc = circuit.mrc || 0;
-                            const actualValue = (highestCompensation * baseMrc) / 100;
-                            compensationDisplay = `$${actualValue.toFixed(2)}`;
-                        }
-                        const slaStatusDisplay = highestStatus === 'BREACHED' ? 'Breached' : 'Safe';
-
-                        await prisma.sLARecord.update({
-                            where: { id },
-                            data: {
-                                compensation: compensationDisplay,
-                                status: slaStatusDisplay,
-                                statusReason: highestCompensation > 0
-                                    ? `Circuit SLA breached: ${highestCompensation}% compensation due`
-                                    : 'Circuit availability within SLA bounds'
-                            }
+                    if (circuit) {
+                        const circuitSlas = await prisma.sla.findMany({ 
+                            where: { 
+                                circuitId: circuit.id,
+                                appliesTo: { in: existingRecord.type === 'CLIENT' ? ['CLIENT', 'CUSTOMER'] : ['VENDOR'] }
+                            } 
                         });
-                        logger.info(`⏱️ [SLA] 💾 [SLA Closure] SLARecord updated — compensation: "${compensationDisplay}", status: "${slaStatusDisplay}"`);
+
+                        if (circuitSlas.length > 0) {
+                            const slaService = require('./slaService');
+                            const now = new Date();
+                            const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+                            const totalUptimeMinutes = daysInMonth * 24 * 60;
+
+                            let highestCompensation = 0;
+                            let highestStatus = 'SAFE';
+                            for (const s of circuitSlas) {
+                                const result = await slaService.calculateSla(s.id, diffMins, totalUptimeMinutes);
+                                if (result.compensationAmount > highestCompensation) {
+                                    highestCompensation = result.compensationAmount;
+                                    highestStatus = result.status;
+                                }
+                            }
+
+                            let compensationDisplay = '-';
+                            if (highestCompensation > 0) {
+                                const baseMrc = existingRecord.type === 'CLIENT' ? (circuit.mrc || 0) : (circuit.supplierMrc || circuit.mrc || 0);
+                                const actualValue = (highestCompensation * baseMrc) / 100;
+                                compensationDisplay = `$${actualValue.toFixed(2)}`;
+                            }
+                            const slaStatusDisplay = highestStatus === 'BREACHED' ? 'Breached' : 'Safe';
+
+                            const finalUpdated = await prisma.sLARecord.update({
+                                where: { id: existingRecord.id },
+                                data: {
+                                    compensation: compensationDisplay,
+                                    status: slaStatusDisplay,
+                                    statusReason: highestCompensation > 0
+                                        ? `Circuit SLA breached: ${highestCompensation}% compensation due`
+                                        : 'Circuit availability within SLA bounds'
+                                }
+                            });
+                            updatedRecords.push(finalUpdated);
+                            logger.info(`⏱️ [SLA] 💾 [SLA Closure] SLARecord ${existingRecord.id} updated — compensation: "${compensationDisplay}", status: "${slaStatusDisplay}"`);
+                        } else {
+                            logger.warn(`⚠️ ⏱️ [SLA] ⚠️ [SLA Closure] Circuit ${circuit.id} has no active SLAs configured for ${existingRecord.type}.`);
+                            updatedRecords.push(updated);
+                        }
                     } else {
-                        logger.warn(`⚠️ ⏱️ [SLA] ⚠️ [SLA Closure] Circuit ${circuit.id} has no active SLAs configured.`);
+                        logger.warn(`⚠️ ⏱️ [SLA] ⚠️ [SLA Closure] No circuit found for circuitId: ${circuitId}`);
+                        updatedRecords.push(updated);
                     }
                 } else {
-                    logger.warn(`⚠️ ⏱️ [SLA] ⚠️ [SLA Closure] No circuit found for circuitId: ${circuitId}`);
+                    updatedRecords.push(updated);
                 }
+            } else {
+                logger.warn(`⚠️ ⏱️ [SLA] ⚠️ [SLA Closure] Could not parse start/end times for downtime calculation. start="${startStr}" end="${endStr}"`);
+                updatedRecords.push(updated);
             }
-        } else {
-            logger.warn(`⚠️ ⏱️ [SLA] ⚠️ [SLA Closure] Could not parse start/end times for downtime calculation. start="${startStr}" end="${endStr}"`);
+        } catch (err) {
+            logger.error(`🚨 ⏱️ [SLA] ❌ [SLA Closure] Auto-compensation engine failed for ${existingRecord.id}: ${err.message}`);
+            updatedRecords.push(updated);
         }
-    } catch (err) {
-        logger.error(`🚨 ⏱️ [SLA] ❌ [SLA Closure] Auto-compensation engine failed: ${err.message}`);
     }
-    // ─────────────────────────────────────────────────────────────────────────
 
-    return updated;
+    return updatedRecords[0];
 };
 
 const updateSLARecordStatus = async (id, status, reason, agentName) => {

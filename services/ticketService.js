@@ -968,100 +968,14 @@ const updateTicket = async (ticketId, updates, agentName) => {
         // --- NEW: SLA Engine Integration for Ticket Closure ---
         if (finalUpdates.status === 'Closed' && ticket.status !== 'Closed') {
             try {
-                // 1. Close the SLA record
+                // 1. Close the SLA record and auto-trigger compensation engine
                 const nowClosed = new Date();
                 const closeDate = nowClosed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
                 const closedTime = nowClosed.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23' }).replace(/^24:/, '00:') + ' hrs';
                 
                 const slaRecordService = require('./slaRecordService');
-                const updatedSlaRecord = await slaRecordService.updateSLAClosure(ticket.id, closeDate, closedTime);
-                
-                // 2. Calculate the specific ticket's downtime
-                if (updatedSlaRecord && updatedSlaRecord.startDate && updatedSlaRecord.startTime) {
-                    const cleanStartTime = updatedSlaRecord.startTime.replace(/hrs/i, '').trim().replace(/^24:/, '00:');
-                    const cleanClosedTime = updatedSlaRecord.closedTime.replace(/hrs/i, '').trim().replace(/^24:/, '00:');
-                    const startStr = `${updatedSlaRecord.startDate} ${cleanStartTime}`;
-                    const endStr = `${updatedSlaRecord.closeDate} ${cleanClosedTime}`;
-                    const sTime = new Date(startStr);
-                    const eTime = new Date(endStr);
-                    
-                    if (!isNaN(sTime.getTime()) && !isNaN(eTime.getTime())) {
-                        const diffMins = Math.round((eTime.getTime() - sTime.getTime()) / 60000);
-                        
-                        logger.info(`🎟️ [TICKET] ⏱️ Ticket ${ticket.ticketId} downtime calculated as ${diffMins} minutes.`);
-
-                        // 3. Forward downtime to Circuit SLA engine
-                        if (updatedTicket.circuitId && diffMins > 0) {
-                            const prisma = require('../models/index');
-                            
-                            // Find circuit UUID by customerCircuitId or supplierCircuitId
-                            const circuit = await prisma.circuit.findFirst({
-                                where: {
-                                    OR: [
-                                        { customerCircuitId: updatedTicket.circuitId },
-                                        { supplierCircuitId: updatedTicket.circuitId }
-                                    ]
-                                },
-                                select: { id: true, mrc: true, supplierMrc: true }
-                            });
-
-                            if (circuit) {
-                                // Find all SLAs belonging to this circuit
-                                const circuitSlas = await prisma.sla.findMany({ where: { circuitId: circuit.id } });
-                                
-                                if (circuitSlas.length > 0) {
-                                    const slaService = require('./slaService');
-                                    // Calculate exact minutes in the current month instead of flat 30 days
-                                    const daysInMonth = new Date(nowClosed.getFullYear(), nowClosed.getMonth() + 1, 0).getDate();
-                                    const totalUptimeMinutes = daysInMonth * 24 * 60; 
-                                    
-                                    logger.info(`🎟️ [TICKET] ⚙️ Syncing ${diffMins} mins downtime to ${circuitSlas.length} SLA(s) for Circuit ${circuit.id} (Uptime Baseline: ${totalUptimeMinutes}m)`);
-                                    
-                                    let highestCompensation = 0;
-                                    let highestStatus = 'SAFE';
-                                    for (const s of circuitSlas) {
-                                        const updatedSla = await slaService.calculateSla(s.id, diffMins, totalUptimeMinutes);
-                                        // Track the worst-case compensation across all SLAs on the circuit
-                                        if (updatedSla.compensationAmount > highestCompensation) {
-                                            highestCompensation = updatedSla.compensationAmount;
-                                            highestStatus = updatedSla.status;
-                                        }
-                                    }
-                                    logger.info(`🎟️ [TICKET] ✅ Circuit SLA engine results: status=${highestStatus}, compensation=${highestCompensation}%`);
-
-                                    // 4. Write compensation result BACK to the ticket's SLARecord
-                                    // This is what makes compensation visible in the Ticket dashboard sidebar
-                                    let compensationDisplay = '-';
-                                    if (highestCompensation > 0) {
-                                        // Use customer MRC or supplier MRC depending on the ticket type/SLA context.
-                                        // For now defaulting to circuit.mrc.
-                                        const baseMrc = circuit.mrc || 0;
-                                        const actualValue = (highestCompensation * baseMrc) / 100;
-                                        compensationDisplay = `$${actualValue.toFixed(2)}`;
-                                    }
-                                    const slaStatusDisplay = highestStatus === 'BREACHED' ? 'Breached' : 'Safe';
-
-                                    await prisma.sLARecord.update({
-                                        where: { ticketId: ticket.id },
-                                        data: {
-                                            compensation: compensationDisplay,
-                                            status: slaStatusDisplay,
-                                            statusReason: highestCompensation > 0
-                                                ? `Circuit SLA breached: ${highestCompensation}% compensation due`
-                                                : 'Circuit availability within SLA bounds'
-                                        }
-                                    });
-                                    logger.info(`🎟️ [TICKET] 💾 SLARecord updated — compensation: "${compensationDisplay}", status: "${slaStatusDisplay}"`);
-
-                                } else {
-                                    logger.warn(`⚠️ 🎟️ [TICKET] ⚠️ Circuit ${circuit.id} has no active SLAs to update.`);
-                                }
-                            } else {
-                                logger.error(`🚨 🎟️ [TICKET] ❌ Could not find exact Circuit UUID for ticket's circuitId string: ${updatedTicket.circuitId}`);
-                            }
-                        }
-                    }
-                }
+                await slaRecordService.updateSLAClosure(ticket.id, closeDate, closedTime);
+                logger.info(`🎟️ [TICKET] ✅ SLA records closed successfully for Ticket ${ticket.ticketId}`);
             } catch (slaErr) {
                 logger.error(`🚨 🎟️ [TICKET] ❌ Complete SLA Update Lifecycle failed for Ticket ${ticket.ticketId}: ${slaErr.message}`, { stack: slaErr.stack });
             }
