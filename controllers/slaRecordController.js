@@ -103,7 +103,7 @@ exports.manualUpdate = async (req, res) => {
         // --- Trigger Compensation Engine if closure times are set ---
         if (updatedRecord.closeDate && updatedRecord.closeDate !== '-' && updatedRecord.closedTime && updatedRecord.closedTime !== '-') {
              const slaRecordService = require('../services/slaRecordService');
-             await slaRecordService.updateSLAClosure(id, updatedRecord.closeDate, updatedRecord.closedTime);
+             await slaRecordService.updateSLAClosure(id, updatedRecord.closeDate, updatedRecord.closedTime, existing);
              const finalRecord = await prisma.sLARecord.findUnique({ where: { id } });
              return res.status(200).json({ success: true, data: finalRecord });
         }

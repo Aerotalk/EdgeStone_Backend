@@ -752,7 +752,7 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
         // 2.5 Find last message ID in thread for accurate In-Reply-To
         const prisma = require('../models/index');
         const replies = await prisma.reply.findMany({
-            where: { ticketId: ticket.id, messageId: { not: null } },
+            where: { ticketId: ticket.id, messageId: { not: null }, category: 'client' },
             orderBy: { createdAt: 'desc' },
             take: 1
         });

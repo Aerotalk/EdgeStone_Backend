@@ -187,17 +187,23 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
             const reasonMatch = (pairs.CLIENT.statusReason || '').match(/(\d+)%/);
             clientCompPct = reasonMatch ? parseFloat(reasonMatch[1]) : 0;
             clientCompUsd = parseFloat((pairs.CLIENT.compensation || '0').replace(/[^0-9.]/g, '')) || 0;
-            totalClientPenaltySum += clientCompUsd;
+            if (slaTypeEnum === 'CLIENT') {
+                totalClientPenaltySum += clientCompUsd;
+            }
         }
         if (pairs && pairs.VENDOR) {
             const reasonMatch = (pairs.VENDOR.statusReason || '').match(/(\d+)%/);
             vendorCompPct = reasonMatch ? parseFloat(reasonMatch[1]) : 0;
             vendorCompUsd = parseFloat((pairs.VENDOR.compensation || '0').replace(/[^0-9.]/g, '')) || 0;
-            totalVendorPenaltySum += vendorCompUsd;
+            if (slaTypeEnum === 'VENDOR') {
+                totalVendorPenaltySum += vendorCompUsd;
+            }
         }
 
         const delta = vendorCompUsd - clientCompUsd;
-        totalDelta += delta;
+        if (slaTypeEnum === 'CLIENT') {
+            totalDelta += delta;
+        }
 
         if (record.status === 'Breached' || record.status === 'BREACHED') {
             breachedCount++;

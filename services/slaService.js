@@ -443,8 +443,8 @@ async function updateSlaStatus(id, newStatus, reason) {
  * @returns {object}  updated SLA record
  */
 async function calculateSla(slaId, downtimeMinutes, totalUptimeMinutes) {
-    if (downtimeMinutes < 0 || totalUptimeMinutes <= 0) {
-        const err = new Error('downtimeMinutes must be >= 0 and totalUptimeMinutes must be > 0.');
+    if (totalUptimeMinutes <= 0) {
+        const err = new Error('totalUptimeMinutes must be > 0.');
         err.statusCode = 400;
         throw err;
     }
@@ -461,7 +461,7 @@ async function calculateSla(slaId, downtimeMinutes, totalUptimeMinutes) {
     }
 
     // ── 1. Accumulate downtime ────────────────────────────────────────
-    const newTotalDowntime = sla.totalDowntimeMinutes + downtimeMinutes;
+    const newTotalDowntime = Math.max(0, sla.totalDowntimeMinutes + downtimeMinutes);
     logger.info(`⏱️ [SLA] 🏃‍♂️ [SLA ENGINE] Step 1: Accumulating downtime: ${sla.totalDowntimeMinutes}m (old) + ${downtimeMinutes}m (new delta) = ${newTotalDowntime}m (new total)`);
 
     // ── 2. Availability factor ────────────────────────────────────────

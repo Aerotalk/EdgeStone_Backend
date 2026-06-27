@@ -174,7 +174,7 @@ const createSLARecord = async (data) => {
     });
 };
 
-const updateSLAClosure = async (id, closeDate, closedTime) => {
+const updateSLAClosure = async (id, closeDate, closedTime, oldRecordOverride = null) => {
     const existingRecords = await prisma.sLARecord.findMany({ 
         where: { 
             OR: [
@@ -199,19 +199,35 @@ const updateSLAClosure = async (id, closeDate, closedTime) => {
 
         // ── Auto-trigger compensation engine when closure times are set ──────────
         try {
-            const cleanStartTime = (existingRecord.startTime || '').replace(/hrs/i, '').trim().replace(/^24:/, '00:');
-            const cleanClosedTime = (closedTime || '').replace(/hrs/i, '').trim().replace(/^24:/, '00:');
-            const startStr = `${existingRecord.startDate} ${cleanStartTime}`;
-            const endStr   = `${closeDate} ${cleanClosedTime}`;
+            const cleanStartTime = (updated.startTime || '').replace(/hrs/i, '').trim().replace(/^24:/, '00:');
+            const cleanClosedTime = (updated.closedTime || '').replace(/hrs/i, '').trim().replace(/^24:/, '00:');
+            const startStr = `${updated.startDate} ${cleanStartTime}`;
+            const endStr   = `${updated.closeDate} ${cleanClosedTime}`;
             const sTime = new Date(startStr);
             const eTime = new Date(endStr);
 
             if (!isNaN(sTime.getTime()) && !isNaN(eTime.getTime())) {
-                const diffMins = Math.round((eTime.getTime() - sTime.getTime()) / 60000);
+                let diffMins = Math.round((eTime.getTime() - sTime.getTime()) / 60000);
+                if (diffMins < 0) diffMins = 0;
                 logger.info(`⏱️ [SLA] ⏱️ [SLA Closure] Downtime for Ticket ${existingRecord.ticket?.ticketId} (${existingRecord.type}): ${diffMins} mins`);
 
+                const oldRecord = (oldRecordOverride && oldRecordOverride.id === existingRecord.id) ? oldRecordOverride : existingRecord;
+                let oldDiffMins = 0;
+                if (oldRecord.startDate && oldRecord.startTime && oldRecord.closeDate && oldRecord.closeDate !== '-' && oldRecord.closedTime && oldRecord.closedTime !== '-') {
+                    const oldCleanStart = (oldRecord.startTime || '').replace(/hrs/i, '').trim().replace(/^24:/, '00:');
+                    const oldCleanClosed = (oldRecord.closedTime || '').replace(/hrs/i, '').trim().replace(/^24:/, '00:');
+                    const oldStartStr = `${oldRecord.startDate} ${oldCleanStart}`;
+                    const oldEndStr = `${oldRecord.closeDate} ${oldCleanClosed}`;
+                    const oldSTime = new Date(oldStartStr);
+                    const oldETime = new Date(oldEndStr);
+                    if (!isNaN(oldSTime.getTime()) && !isNaN(oldETime.getTime())) {
+                        oldDiffMins = Math.round((oldETime.getTime() - oldSTime.getTime()) / 60000);
+                        if (oldDiffMins < 0) oldDiffMins = 0;
+                    }
+                }
+
                 const circuitId = existingRecord.ticket?.circuitId;
-                if (circuitId && diffMins > 0) {
+                if (circuitId && (diffMins > 0 || oldDiffMins > 0 || oldRecord.status === 'Breached')) {
                     const circuit = await prisma.circuit.findFirst({
                         where: {
                             OR: [
@@ -236,10 +252,12 @@ const updateSLAClosure = async (id, closeDate, closedTime) => {
                             const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
                             const totalUptimeMinutes = daysInMonth * 24 * 60;
 
+                            const deltaMins = diffMins - oldDiffMins;
+
                             let highestCompensation = 0;
                             let highestStatus = 'SAFE';
                             for (const s of circuitSlas) {
-                                const result = await slaService.calculateSla(s.id, diffMins, totalUptimeMinutes);
+                                const result = await slaService.calculateSla(s.id, deltaMins, totalUptimeMinutes);
                                 if (result.compensationAmount > highestCompensation) {
                                     highestCompensation = result.compensationAmount;
                                     highestStatus = result.status;
