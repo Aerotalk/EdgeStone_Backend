@@ -461,8 +461,43 @@ async function calculateSla(slaId, downtimeMinutes, totalUptimeMinutes) {
     }
 
     // ── 1. Accumulate downtime ────────────────────────────────────────
-    const newTotalDowntime = Math.max(0, sla.totalDowntimeMinutes + downtimeMinutes);
-    logger.info(`⏱️ [SLA] 🏃‍♂️ [SLA ENGINE] Step 1: Accumulating downtime: ${sla.totalDowntimeMinutes}m (old) + ${downtimeMinutes}m (new delta) = ${newTotalDowntime}m (new total)`);
+    const circuit = await prisma.circuit.findUnique({
+        where: { id: sla.circuitId }
+    });
+
+    let actualTotalDowntime = 0;
+    let foundRecords = false;
+    if (circuit) {
+        const matchingRecords = await prisma.sLARecord.findMany({
+            where: {
+                ticket: {
+                    circuitId: {
+                        in: [circuit.customerCircuitId, circuit.supplierCircuitId].filter(Boolean)
+                    }
+                },
+                type: sla.appliesTo === 'VENDOR' ? 'VENDOR' : 'CLIENT'
+            }
+        });
+
+        if (matchingRecords.length > 0) {
+            foundRecords = true;
+            for (const rec of matchingRecords) {
+                if (rec.startDate && rec.startTime && rec.closeDate && rec.closeDate !== '-' && rec.closedTime && rec.closedTime !== '-') {
+                    const cleanStart = (rec.startTime || '').replace(/hrs/i, '').trim().replace(/^24:/, '00:');
+                    const cleanClosed = (rec.closedTime || '').replace(/hrs/i, '').trim().replace(/^24:/, '00:');
+                    const sTime = new Date(`${rec.startDate} ${cleanStart}`);
+                    const eTime = new Date(`${rec.closeDate} ${cleanClosed}`);
+                    if (!isNaN(sTime.getTime()) && !isNaN(eTime.getTime())) {
+                        let mins = Math.round((eTime.getTime() - sTime.getTime()) / 60000);
+                        if (mins > 0) actualTotalDowntime += mins;
+                    }
+                }
+            }
+        }
+    }
+
+    const newTotalDowntime = foundRecords ? actualTotalDowntime : Math.max(0, sla.totalDowntimeMinutes + downtimeMinutes);
+    logger.info(`⏱️ [SLA] 🏃‍♂️ [SLA ENGINE] Step 1: Accumulating downtime: ${sla.totalDowntimeMinutes}m (old) -> ${newTotalDowntime}m (new total calculated from DB records)`);
 
     // ── 2. Availability factor ────────────────────────────────────────
     const effectiveUptime = Math.max(totalUptimeMinutes - newTotalDowntime, 0);
