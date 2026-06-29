@@ -258,9 +258,48 @@ const updateSLAClosure = async (id, closeDate, closedTime, oldRecordOverride = n
                             let highestStatus = 'SAFE';
                             for (const s of circuitSlas) {
                                 const result = await slaService.calculateSla(s.id, deltaMins, totalUptimeMinutes);
-                                if (result.compensationAmount > highestCompensation) {
-                                    highestCompensation = result.compensationAmount;
-                                    highestStatus = result.status;
+                                
+                                // Calculate the standalone impact of THIS ticket's downtime (diffMins)
+                                const effectiveUptime = Math.max(totalUptimeMinutes - diffMins, 0);
+                                const ticketAvailability = (effectiveUptime / totalUptimeMinutes) * 100;
+
+                                const rules = result.rules || [];
+                                let matchedRule = rules.find(r => {
+                                    const upperOk = r.upperLimit === null || r.upperOperator === null ? true :
+                                        (r.upperOperator === '>' ? r.upperLimit > ticketAvailability :
+                                         r.upperOperator === '>=' ? r.upperLimit >= ticketAvailability :
+                                         r.upperOperator === '<' ? r.upperLimit < ticketAvailability :
+                                         r.upperOperator === '<=' ? r.upperLimit <= ticketAvailability : false);
+                                    const lowerOk = r.lowerLimit === null || r.lowerOperator === null ? true :
+                                        (r.lowerOperator === '>' ? ticketAvailability > r.lowerLimit :
+                                         r.lowerOperator === '>=' ? ticketAvailability >= r.lowerLimit :
+                                         r.lowerOperator === '<' ? ticketAvailability < r.lowerLimit :
+                                         r.lowerOperator === '<=' ? ticketAvailability <= r.lowerLimit : false);
+                                    return upperOk && lowerOk;
+                                }) || null;
+
+                                if (!matchedRule && rules.length > 0) {
+                                    const lowestBoundRule = rules.reduce((min, r) => {
+                                        if (r.lowerLimit === null) return min;
+                                        if (min.lowerLimit === null) return r;
+                                        return r.lowerLimit < min.lowerLimit ? r : min;
+                                    }, rules[0]);
+                                    if (lowestBoundRule.lowerLimit !== null && ticketAvailability < lowestBoundRule.lowerLimit) {
+                                        matchedRule = rules.reduce((max, r) => r.compensationPercentage > max.compensationPercentage ? r : max, rules[0]);
+                                    } else {
+                                        const rulesAbove = rules.filter(r => r.lowerLimit !== null && r.lowerLimit > ticketAvailability);
+                                        if (rulesAbove.length > 0) {
+                                            matchedRule = rulesAbove.reduce((closest, r) => r.lowerLimit < closest.lowerLimit ? r : closest);
+                                        }
+                                    }
+                                }
+
+                                const compPct = matchedRule ? matchedRule.compensationPercentage : 0;
+                                const status = compPct > 0 ? 'BREACHED' : 'SAFE';
+
+                                if (compPct > highestCompensation) {
+                                    highestCompensation = compPct;
+                                    highestStatus = status;
                                 }
                             }
 
