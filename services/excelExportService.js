@@ -183,6 +183,9 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
         let clientCompPct = 0, clientCompUsd = 0;
         let vendorCompPct = 0, vendorCompUsd = 0;
 
+        const slaTypeEnum = pairs && pairs.CLIENT && pairs.CLIENT.id === record.id ? 'CLIENT' : (pairs && pairs.VENDOR && pairs.VENDOR.id === record.id ? 'VENDOR' : 'UNKNOWN');
+        const slaAppliesTo = slaTypeEnum === 'CLIENT' ? 'CUSTOMER' : 'VENDOR';
+
         if (pairs && pairs.CLIENT) {
             const reasonMatch = (pairs.CLIENT.statusReason || '').match(/(\d+)%/);
             clientCompPct = reasonMatch ? parseFloat(reasonMatch[1]) : 0;
@@ -208,9 +211,6 @@ exports.generateRichSLAExcel = async ({ search, filter, customStart, customEnd, 
         if (record.status === 'Breached' || record.status === 'BREACHED') {
             breachedCount++;
         }
-
-        const slaTypeEnum = pairs && pairs.CLIENT && pairs.CLIENT.id === record.id ? 'CLIENT' : (pairs && pairs.VENDOR && pairs.VENDOR.id === record.id ? 'VENDOR' : 'UNKNOWN');
-        const slaAppliesTo = slaTypeEnum === 'CLIENT' ? 'CUSTOMER' : 'VENDOR';
         
         let rulesText = 'No rules defined';
         const matchedSla = circuit ? slas.find(s => s.circuitId === circuit.id && s.appliesTo === slaAppliesTo) : null;

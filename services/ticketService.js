@@ -970,8 +970,8 @@ const updateTicket = async (ticketId, updates, agentName) => {
             try {
                 // 1. Close the SLA record and auto-trigger compensation engine
                 const nowClosed = new Date();
-                const closeDate = nowClosed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-                const closedTime = nowClosed.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23' }).replace(/^24:/, '00:') + ' hrs';
+                const closeDate = nowClosed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+                const closedTime = nowClosed.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23', timeZone: 'Asia/Kolkata' }).replace(/^24:/, '00:') + ' hrs';
                 
                 const slaRecordService = require('./slaRecordService');
                 await slaRecordService.updateSLAClosure(ticket.id, closeDate, closedTime);
