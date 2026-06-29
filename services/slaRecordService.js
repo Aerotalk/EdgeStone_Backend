@@ -67,7 +67,8 @@ const getAllSLARecords = async ({ search, filter, customStart, customEnd, type }
                 const parsedEnd = new Date(endRawStr);
                 
                 if (!isNaN(parsedStart.getTime()) && !isNaN(parsedEnd.getTime())) {
-                    const diffMins = Math.round((parsedEnd.getTime() - parsedStart.getTime()) / 60000);
+                    let diffMins = Math.round((parsedEnd.getTime() - parsedStart.getTime()) / 60000);
+                    if (diffMins < 0) diffMins = 0;
                     downtimeStr = `${diffMins} mins`;
                 }
             }
