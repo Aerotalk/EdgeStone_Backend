@@ -43,8 +43,8 @@ const stripQuotedReply = (text) => {
     if (idx !== -1) text = text.substring(0, idx);
 
     // 3. Gmail Style "On [date], [name] wrote:"
-    // (We look for "On " followed by "wrote:" within a reasonable distance)
-    idx = text.search(/On\s+[\s\S]{10,150}?wrote:/i);
+    // (We look for "On " followed by "wrote:" within a reasonable distance at the start of a line)
+    idx = text.search(/(?:^|\n)\s*On\s+[\s\S]{10,150}?wrote:/i);
     if (idx !== -1) text = text.substring(0, idx);
     
     // 4. Sometimes Outlook includes "________________________________" before From:
