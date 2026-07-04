@@ -63,8 +63,9 @@ const createCircuit = async (req, res, next) => {
         logger.debug('🐞 🔌 [CIRCUIT] 📝 Request received: createCircuit');
 
         const {
-            customerCircuitId,
-            supplierCircuitId,
+            customerCircuitId: reqCustomerCircuitId,
+            supplierCircuitId: reqSupplierCircuitId,
+            isTemporary,
             type = 'UNPROTECTED',
             vendorId,
             clientId,
@@ -84,28 +85,39 @@ const createCircuit = async (req, res, next) => {
             supplierNrc,
         } = req.body;
 
-        if (!customerCircuitId || !customerCircuitId.trim()) {
+        if (!reqCustomerCircuitId || !reqCustomerCircuitId.trim()) {
             return res.status(400).json({ success: false, message: 'customerCircuitId is required.' });
         }
 
+        let customerCircuitId = reqCustomerCircuitId.trim();
+        let supplierCircuitId = reqSupplierCircuitId?.trim();
+
+        if (isTemporary) {
+            customerCircuitId = `temp-${customerCircuitId}`;
+            if (supplierCircuitId) {
+                supplierCircuitId = `temp-${supplierCircuitId}`;
+            }
+        }
+
+
         // supplierCircuitId must be unique — auto-generate if not provided
-        const resolvedSupplierCircuitId = supplierCircuitId?.trim()
-            || `SUP-${customerCircuitId.trim()}-${Date.now()}`;
+        const resolvedSupplierCircuitId = supplierCircuitId 
+            || (isTemporary ? `temp-SUP-${reqCustomerCircuitId.trim()}-${Date.now()}` : `SUP-${reqCustomerCircuitId.trim()}-${Date.now()}`);
 
         // Check for duplicate customerCircuitId
         const existing = await prisma.circuit.findUnique({
-            where: { customerCircuitId: customerCircuitId.trim() },
+            where: { customerCircuitId },
         });
         if (existing) {
             return res.status(409).json({
                 success: false,
-                message: `Circuit with ID "${customerCircuitId.trim()}" already exists.`,
+                message: `Circuit with ID "${customerCircuitId}" already exists.`,
             });
         }
 
         const circuit = await prisma.circuit.create({
             data: {
-                customerCircuitId:          customerCircuitId.trim(),
+                customerCircuitId:          customerCircuitId,
                 supplierCircuitId:          resolvedSupplierCircuitId,
                 type:                       ['PROTECTED', 'UNPROTECTED'].includes(type) ? type : 'UNPROTECTED',
                 vendorId:                   vendorId   || null,
