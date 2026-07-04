@@ -232,12 +232,16 @@ if (require.main === module || process.env.NODE_ENV === 'production') {
             // Start IMAP Listener for incoming emails - ONLY ON PRIMARY CLUSTER INSTANCE
             // PM2 sets NODE_APP_INSTANCE for clustered apps (0, 1, 2...)
             if (process.env.NODE_APP_INSTANCE === '0' || !process.env.NODE_APP_INSTANCE) {
-                try {
-                    const emailService = require('./services/emailService');
-                    logger.info('📧 Initializing IMAP Listener on primary instance...');
-                    emailService.startImapListener();
-                } catch (err) {
-                    logger.error('❌ Failed to start IMAP listener:', err);
+                if (process.env.ENABLE_EMAIL_POLLING === 'true') {
+                    try {
+                        const emailService = require('./services/emailService');
+                        logger.info('📧 Initializing IMAP Listener on primary instance...');
+                        emailService.startImapListener();
+                    } catch (err) {
+                        logger.error('❌ Failed to start IMAP listener:', err);
+                    }
+                } else {
+                    logger.info(`📧 IMAP Listener disabled. To enable email ticket creation, set ENABLE_EMAIL_POLLING=true in your .env file.`);
                 }
             } else {
                 logger.info(`🔄 Running as secondary worker instance (ID: ${process.env.NODE_APP_INSTANCE}). IMAP Listener disabled here.`);

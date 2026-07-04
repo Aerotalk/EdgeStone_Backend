@@ -391,6 +391,9 @@ const createTicketFromEmail = async (emailData) => {
                 if (c.customerCircuitId) validCircuitIds.push(c.customerCircuitId);
                 if (c.supplierCircuitId) validCircuitIds.push(c.supplierCircuitId);
             });
+            
+            // Sort by length descending to ensure longer IDs (e.g., temp-N1) are matched before shorter substrings (e.g., N1)
+            validCircuitIds.sort((a, b) => b.length - a.length);
 
             // ── STAGE 1: Direct Regex Pre-Check (fast, reliable, AI-independent) ──
             // Scans subject AND body for any known Circuit ID using case-insensitive string matching.
