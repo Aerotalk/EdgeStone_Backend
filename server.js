@@ -57,7 +57,9 @@ const allowedOrigins = [
     'http://localhost:5000', // Local Backend (for self-calls if applicable)
     'https://edgestonefrontend.vercel.app', // Production Vercel Frontend
     'https://edgestonefrontend-b4zz7k8lh-aerotalks-projects.vercel.app', // Vercel Preview/Production URL
+    'https://ticketportal.edgestone.in', // EdgeStone Ticket Portal
 ];
+
 
 // Add production frontend URL if available
 if (process.env.FRONTEND_URL) {
