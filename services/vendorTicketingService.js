@@ -99,7 +99,7 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
             date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
             author: agentName || 'Agent',
             type: 'agent',
-            category: 'vendor', // Explicitly marking this thread as vendor-side
+            category: emailData.vendorId ? `vendor_${emailData.vendorId}` : 'vendor', // Explicitly marking this thread as vendor-side
             to: vendorContactEmails,
             cc: cc || [],
             bcc: bcc || []
@@ -111,7 +111,7 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
         
         // 3.5 Find last message ID in thread for accurate In-Reply-To
         const replies = await prisma.reply.findMany({
-            where: { ticketId: ticket.id, messageId: { not: null }, category: 'vendor' },
+            where: { ticketId: ticket.id, messageId: { not: null }, category: emailData.vendorId ? `vendor_${emailData.vendorId}` : 'vendor' },
             orderBy: { createdAt: 'desc' },
             take: 1
         });

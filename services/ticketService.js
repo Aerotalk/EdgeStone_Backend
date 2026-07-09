@@ -225,7 +225,7 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
 // appendVendorReplyToTicket
 // Appends a vendor's reply email to an existing ticket's vendor thread.
 // ─────────────────────────────────────────────────────────────────────────────
-const appendVendorReplyToTicket = async (ticket, emailData) => {
+const appendVendorReplyToTicket = async (ticket, emailData, vendorId = null) => {
     const { from, fromName, body, html, date } = emailData;
     const emailReceivedDate = date ? new Date(date) : new Date();
 
@@ -244,7 +244,7 @@ const appendVendorReplyToTicket = async (ticket, emailData) => {
         date: emailReceivedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
         author: fromName || from,
         type: 'vendor',
-        category: 'vendor',
+        category: vendorId ? `vendor_${vendorId}` : 'vendor',
         to: [from],
         messageId: emailData.messageId || null,
     });
@@ -325,11 +325,14 @@ const createTicketFromEmail = async (emailData) => {
             // Determine if the sender is a known Vendor (case-insensitive)
             const VendorModel = require('../models/vendor');
             const vendors = await VendorModel.findAllVendors();
-            let isVendor = vendors.some(v => v.emails.some(e => e.toLowerCase() === from.toLowerCase()));
+            let matchedVendor = vendors.find(v => v.emails.some(e => e.toLowerCase() === from.toLowerCase()));
+            let isVendor = !!matchedVendor;
+            let finalVendorId = matchedVendor ? matchedVendor.id : null;
             
             // PREVENT FALSE POSITIVE: If the sender is the original client, don't default to vendor thread
             if (existingTicket.email && existingTicket.email.toLowerCase() === from.toLowerCase()) {
                 isVendor = false;
+                finalVendorId = null;
             }
 
             // EXPLICIT ROUTING: If the subject contains the explicit vendor suffix (e.g. [#1024-V]), force it into vendor thread
@@ -337,10 +340,11 @@ const createTicketFromEmail = async (emailData) => {
             if (subject && /\[#V?\d+-V\]/i.test(subject)) {
                 logger.info(`🎟️ [TICKET] 🧵 Force-routing reply into Vendor thread due to -V tag in subject`);
                 isVendor = true;
+                if (!finalVendorId) finalVendorId = existingTicket.vendorId; // Default to primary vendor if unmapped
             }
 
             if (isVendor) {
-                return await appendVendorReplyToTicket(existingTicket, emailData);
+                return await appendVendorReplyToTicket(existingTicket, emailData, finalVendorId);
             } else {
                 return await appendClientReplyToTicket(existingTicket, emailData);
             }
@@ -383,7 +387,7 @@ const createTicketFromEmail = async (emailData) => {
         try {
             // Fetch circuits including supplier IDs, clientId and vendorId for disambiguation
             const allCircuits = await prisma.circuit.findMany({ 
-                select: { id: true, customerCircuitId: true, supplierCircuitId: true, clientId: true, vendorId: true } 
+                select: { id: true, customerCircuitId: true, supplierCircuitId: true, clientId: true, vendorId: true, isMultiVendor: true, vendorCircuits: true } 
             });
             
             const validCircuitIds = [];
@@ -464,9 +468,22 @@ const createTicketFromEmail = async (emailData) => {
             if (circuitId) {
                 const detectedCircuitRecord = allCircuits.find(c => c.customerCircuitId === circuitId || c.supplierCircuitId === circuitId);
                 if (detectedCircuitRecord) {
-                    // If the sender is explicitly the Vendor for this circuit, assign it as a Vendor ticket
-                    if (detectedCircuitRecord.vendorId && potentialVendorIds.includes(detectedCircuitRecord.vendorId)) {
-                        vendorId = detectedCircuitRecord.vendorId;
+                    let matchedCircuitVendorId = null;
+
+                    if (detectedCircuitRecord.isMultiVendor && detectedCircuitRecord.vendorCircuits && detectedCircuitRecord.vendorCircuits.length > 0) {
+                        // For multi-vendor, check if sender matches any of the vendorCircuits' vendors
+                        const matchingVendorCircuit = detectedCircuitRecord.vendorCircuits.find(vc => vc.vendorId && potentialVendorIds.includes(vc.vendorId));
+                        if (matchingVendorCircuit) {
+                            matchedCircuitVendorId = matchingVendorCircuit.vendorId;
+                        }
+                    } else if (detectedCircuitRecord.vendorId && potentialVendorIds.includes(detectedCircuitRecord.vendorId)) {
+                        // Standard single vendor check
+                        matchedCircuitVendorId = detectedCircuitRecord.vendorId;
+                    }
+
+                    // If the sender is explicitly a Vendor for this circuit, assign it as a Vendor ticket
+                    if (matchedCircuitVendorId) {
+                        vendorId = matchedCircuitVendorId;
                         ticketType = 'Vendor';
                         clientId = null;
                         logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Vendor ${vendorId} based on Circuit ${circuitId}`);
