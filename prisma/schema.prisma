@@ -71,6 +71,7 @@ model Vendor {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   circuits  Circuit[]
+  vendorCircuits VendorCircuit[]
   tickets   Ticket[]
   slas      Sla[]
 }
@@ -251,6 +252,30 @@ model Circuit {
 
   // New SLA management (full lifecycle SLAs per vendor/customer)
   slas     Sla[]
+  
+  isMultiVendor Boolean @default(false)
+  vendorCircuits VendorCircuit[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model VendorCircuit {
+  id                         String  @id @default(uuid())
+  circuitId                  String
+  circuit                    Circuit @relation(fields: [circuitId], references: [id], onDelete: Cascade)
+  
+  vendorId                   String?
+  vendor                     Vendor? @relation(fields: [vendorId], references: [id])
+  
+  supplierCircuitId          String?
+  supplierPoNumber           String?
+  supplierServiceDescription String?
+  supplierContractTermMonths Int?
+  supplierContractType       String?
+  billingStartDate           String?
+  supplierMrc                Float   @default(800)
+  supplierNrc                Float?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

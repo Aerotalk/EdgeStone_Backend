@@ -9,6 +9,7 @@ const logger = require('../utils/logger');
 const CIRCUIT_INCLUDE = {
     vendor: { select: { id: true, name: true, status: true } },
     client: { select: { id: true, name: true, status: true } },
+    vendorCircuits: { include: { vendor: { select: { id: true, name: true, status: true } } } },
 };
 
 // ── Shared serialiser ─────────────────────────────────────────────────────────
@@ -33,6 +34,8 @@ const serialize = (circuit) => ({
     vendorId:             circuit.vendorId,
     vendor:               circuit.vendor,
     client:               circuit.client,
+    isMultiVendor:        circuit.isMultiVendor,
+    vendorCircuits:       circuit.vendorCircuits,
 });
 
 // ── GET /api/circuits ─────────────────────────────────────────────────────────
@@ -83,6 +86,8 @@ const createCircuit = async (req, res, next) => {
             supplierMrc,
             nrc,
             supplierNrc,
+            isMultiVendor,
+            vendorCircuits,
         } = req.body;
 
         if (!reqCustomerCircuitId || !reqCustomerCircuitId.trim()) {
@@ -135,6 +140,20 @@ const createCircuit = async (req, res, next) => {
                 supplierMrc:                supplierMrc != null ? Number(supplierMrc) : 800,
                 nrc:                        nrc != null ? Number(nrc) : null,
                 supplierNrc:                supplierNrc != null ? Number(supplierNrc) : null,
+                isMultiVendor:              Boolean(isMultiVendor),
+                vendorCircuits: isMultiVendor && Array.isArray(vendorCircuits) ? {
+                    create: vendorCircuits.map(vc => ({
+                        vendorId: vc.vendorId || null,
+                        supplierCircuitId: vc.supplierCircuitId || `SUP-${customerCircuitId.trim()}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                        supplierPoNumber: vc.supplierPoNumber || null,
+                        supplierServiceDescription: vc.supplierServiceDescription || null,
+                        supplierContractTermMonths: vc.supplierContractTermMonths ? Number(vc.supplierContractTermMonths) : null,
+                        supplierContractType: vc.supplierContractType || null,
+                        billingStartDate: vc.billingStartDate || null,
+                        supplierMrc: vc.supplierMrc != null ? Number(vc.supplierMrc) : 800,
+                        supplierNrc: vc.supplierNrc != null ? Number(vc.supplierNrc) : null,
+                    }))
+                } : undefined,
             },
             include: CIRCUIT_INCLUDE,
         });
@@ -177,6 +196,8 @@ const updateCircuit = async (req, res, next) => {
             supplierMrc,
             nrc,
             supplierNrc,
+            isMultiVendor,
+            vendorCircuits,
         } = req.body;
 
         // Check duplicate customerCircuitId only if it's changing
@@ -213,9 +234,35 @@ const updateCircuit = async (req, res, next) => {
                 ...(supplierMrc         !== undefined && { supplierMrc:           supplierMrc != null ? Number(supplierMrc) : existing.supplierMrc }),
                 ...(nrc                 !== undefined && { nrc:                   nrc != null ? Number(nrc) : existing.nrc }),
                 ...(supplierNrc         !== undefined && { supplierNrc:           supplierNrc != null ? Number(supplierNrc) : existing.supplierNrc }),
+                ...(isMultiVendor       !== undefined && { isMultiVendor:         Boolean(isMultiVendor) }),
             },
             include: CIRCUIT_INCLUDE,
         });
+
+        if (isMultiVendor && Array.isArray(vendorCircuits)) {
+            // Recreate all vendor circuits for simplicity
+            await prisma.vendorCircuit.deleteMany({ where: { circuitId: id } });
+            if (vendorCircuits.length > 0) {
+                await prisma.vendorCircuit.createMany({
+                    data: vendorCircuits.map(vc => ({
+                        circuitId: id,
+                        vendorId: vc.vendorId || null,
+                        supplierCircuitId: vc.supplierCircuitId || `SUP-${updated.customerCircuitId.trim()}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                        supplierPoNumber: vc.supplierPoNumber || null,
+                        supplierServiceDescription: vc.supplierServiceDescription || null,
+                        supplierContractTermMonths: vc.supplierContractTermMonths ? Number(vc.supplierContractTermMonths) : null,
+                        supplierContractType: vc.supplierContractType || null,
+                        billingStartDate: vc.billingStartDate || null,
+                        supplierMrc: vc.supplierMrc != null ? Number(vc.supplierMrc) : 800,
+                        supplierNrc: vc.supplierNrc != null ? Number(vc.supplierNrc) : null,
+                    }))
+                });
+            }
+            // re-fetch updated with includes
+            const finalUpdated = await prisma.circuit.findUnique({ where: { id }, include: CIRCUIT_INCLUDE });
+            logger.info(`🔌 [CIRCUIT] ✅ Circuit updated: ${finalUpdated.customerCircuitId} (id: ${finalUpdated.id})`);
+            return res.status(200).json({ success: true, data: serialize(finalUpdated) });
+        }
 
         logger.info(`🔌 [CIRCUIT] ✅ Circuit updated: ${updated.customerCircuitId} (id: ${updated.id})`);
         res.status(200).json({ success: true, data: serialize(updated) });
