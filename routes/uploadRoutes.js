@@ -3,8 +3,10 @@ const router = express.Router();
 const { 
     uploadProfile, 
     uploadDocument, 
+    uploadAttachment,
     uploadProfilePictureHandler, 
-    uploadDocumentHandler 
+    uploadDocumentHandler,
+    uploadAttachmentHandler
 } = require('../controllers/uploadController');
 const { protect } = require('../middlewares/authMiddleware'); 
 
@@ -13,5 +15,6 @@ const { protect } = require('../middlewares/authMiddleware');
 
 router.post('/profile', uploadProfile.single('file'), uploadProfilePictureHandler);
 router.post('/document', uploadDocument.single('file'), uploadDocumentHandler);
+router.post('/attachments', uploadAttachment.array('files', 10), uploadAttachmentHandler);
 
 module.exports = router;

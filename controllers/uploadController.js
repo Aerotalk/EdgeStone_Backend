@@ -11,6 +11,7 @@ const createDir = (dir) => {
 // Ensure directories exist on startup
 createDir('uploads/profiles');
 createDir('uploads/documents');
+createDir('uploads/attachments');
 
 const createStorage = (folderName) => multer.diskStorage({
     destination: function (req, file, cb) {
@@ -29,6 +30,11 @@ const uploadProfile = multer({
 
 const uploadDocument = multer({
     storage: createStorage('documents'),
+    limits: { fileSize: 20 * 1024 * 1024 } // 20MB limit
+});
+
+const uploadAttachment = multer({
+    storage: createStorage('attachments'),
     limits: { fileSize: 20 * 1024 * 1024 } // 20MB limit
 });
 
@@ -63,9 +69,32 @@ const uploadDocumentHandler = (req, res) => {
     });
 };
 
+const uploadAttachmentHandler = (req, res) => {
+    if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ success: false, message: 'No files uploaded' });
+    }
+    
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    
+    const attachments = req.files.map(file => ({
+        url: `${protocol}://${req.get('host')}/uploads/attachments/${file.filename}`,
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+        size: file.size
+    }));
+    
+    res.status(200).json({
+        success: true,
+        message: 'Attachments uploaded successfully',
+        attachments
+    });
+};
+
 module.exports = {
     uploadProfile,
     uploadDocument,
+    uploadAttachment,
     uploadProfilePictureHandler,
-    uploadDocumentHandler
+    uploadDocumentHandler,
+    uploadAttachmentHandler
 };

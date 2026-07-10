@@ -195,6 +195,7 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
         category: 'client',
         to: [from],
         messageId: emailData.messageId || null,
+        attachments: emailData.attachments || []
     });
 
     // Log activity
@@ -247,6 +248,7 @@ const appendVendorReplyToTicket = async (ticket, emailData, vendorId = null) => 
         category: vendorId ? `vendor_${vendorId}` : 'vendor',
         to: [from],
         messageId: emailData.messageId || null,
+        attachments: emailData.attachments || []
     });
 
     // Log activity
@@ -766,7 +768,8 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
             to: recipientEmails,
             cc: ccEmails,
             bcc: bccEmails,
-            subject: emailSubject
+            subject: emailSubject,
+            attachments: attachments || []
         });
 
         // 2.5 Find last message ID in thread for accurate In-Reply-To

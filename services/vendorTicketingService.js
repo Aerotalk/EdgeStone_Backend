@@ -102,7 +102,8 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
             category: emailData.vendorId ? `vendor_${emailData.vendorId}` : 'vendor', // Explicitly marking this thread as vendor-side
             to: vendorContactEmails,
             cc: cc || [],
-            bcc: bcc || []
+            bcc: bcc || [],
+            attachments: attachments || []
         });
 
         logger.info(`🎟️ [TICKET] ✅ Vendor Reply added to database for Ticket ${ticket.ticketId}`);

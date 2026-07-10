@@ -130,6 +130,7 @@ model Reply {
 
   ticketId String
   ticket   Ticket @relation(fields: [ticketId], references: [id])
+  attachments Json? @default("[]")
 
   createdAt DateTime @default(now())
 }
