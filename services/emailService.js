@@ -91,11 +91,26 @@ const sendViaGraph = async (options) => {
 
     if (options.attachments && options.attachments.length > 0) {
         message.hasAttachments = true;
+        const fs = require('fs');
+        const path = require('path');
         message.attachments = options.attachments.map(att => {
+            let contentBytes = att.content || att.contentBytes;
+            
+            if (!contentBytes && att.filename) {
+                try {
+                    const filePath = path.join(__dirname, '../uploads/attachments', att.filename);
+                    if (fs.existsSync(filePath)) {
+                        contentBytes = fs.readFileSync(filePath).toString('base64');
+                    }
+                } catch (err) {
+                    console.error(`Failed to read attachment file: ${err.message}`);
+                }
+            }
+
             const attachment = {
                 '@odata.type': '#microsoft.graph.fileAttachment',
-                name: att.filename || att.name,
-                contentBytes: att.content || att.contentBytes
+                name: att.originalName || att.filename || att.name || 'attachment',
+                contentBytes: contentBytes || ''
             };
             if (att.isInline) {
                 attachment.isInline = true;
@@ -266,6 +281,7 @@ const fetchNewGraphEmails = async () => {
                                 emailData.attachments.push({
                                     url: publicUrl,
                                     originalName: attachment.name || fileName,
+                                    filename: fileName,
                                     mimeType: attachment.contentType,
                                     size: attachment.size
                                 });

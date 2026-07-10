@@ -79,6 +79,7 @@ const uploadAttachmentHandler = (req, res) => {
     const attachments = req.files.map(file => ({
         url: `${protocol}://${req.get('host')}/uploads/attachments/${file.filename}`,
         originalName: file.originalname,
+        filename: file.filename,
         mimeType: file.mimetype,
         size: file.size
     }));
