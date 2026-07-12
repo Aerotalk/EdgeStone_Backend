@@ -327,10 +327,39 @@ const createTicketFromEmail = async (emailData) => {
             // Determine if the sender is a known Vendor (case-insensitive)
             const VendorModel = require('../models/vendor');
             const vendors = await VendorModel.findAllVendors();
-            let matchedVendor = vendors.find(v => v.emails.some(e => e.toLowerCase() === from.toLowerCase()));
-            let isVendor = !!matchedVendor;
-            let finalVendorId = matchedVendor ? matchedVendor.id : null;
-            
+            let matchedVendors = vendors.filter(v => v.emails.some(e => e.toLowerCase() === from.toLowerCase()));
+            let isVendor = matchedVendors.length > 0;
+            let finalVendorId = null;
+
+            if (isVendor) {
+                // Determine the best vendor match if multiple vendors share the same email
+                const prisma = require('../models/index');
+                let circuitVendors = [];
+                if (existingTicket.vendorId) {
+                    circuitVendors.push(existingTicket.vendorId);
+                }
+                
+                if (existingTicket.circuitId) {
+                    try {
+                        const circuit = await prisma.circuit.findFirst({
+                            where: { OR: [ { customerCircuitId: existingTicket.circuitId }, { id: existingTicket.circuitId } ] },
+                            include: { vendorCircuits: true }
+                        });
+                        if (circuit) {
+                            if (circuit.vendorId) circuitVendors.push(circuit.vendorId);
+                            if (circuit.vendorCircuits && circuit.vendorCircuits.length > 0) {
+                                circuitVendors.push(...circuit.vendorCircuits.map(vc => vc.vendorId).filter(id => id));
+                            }
+                        }
+                    } catch (err) {
+                        logger.error(`Error finding circuit for vendor prioritization: ${err.message}`);
+                    }
+                }
+
+                const prioritizedVendor = matchedVendors.find(v => circuitVendors.includes(v.id));
+                finalVendorId = prioritizedVendor ? prioritizedVendor.id : matchedVendors[0].id;
+            }
+
             // PREVENT FALSE POSITIVE: If the sender is the original client, don't default to vendor thread
             if (existingTicket.email && existingTicket.email.toLowerCase() === from.toLowerCase()) {
                 isVendor = false;
