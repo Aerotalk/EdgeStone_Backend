@@ -94,7 +94,15 @@ app.use(helmet({
 app.use(morgan('combined', { stream: { write: message => logger.info(message.trim()) } }));
 
 // Static file serving for uploads
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
+    setHeaders: (res, filePath, stat) => {
+        // Force download for files in the attachments folder
+        if (filePath.includes('attachments') || filePath.includes('attachments\\') || filePath.includes('attachments/')) {
+            const filename = path.basename(filePath);
+            res.set('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+        }
+    }
+}));
 
 // Routes (Placeholders)
 // Health Check Route
