@@ -264,7 +264,7 @@ const fetchNewGraphEmails = async () => {
                         }
 
                         for (const attachment of attachResult.value || []) {
-                            if (attachment['@odata.type'] === '#microsoft.graph.fileAttachment' && attachment.contentBytes) {
+                            if (attachment['@odata.type'] === '#microsoft.graph.fileAttachment' && attachment.contentBytes && !attachment.isInline) {
                                 const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
                                 const safeName = attachment.name ? attachment.name.replace(/[^a-zA-Z0-9.-]/g, '_') : 'attachment';
                                 const fileName = `email-${uniqueSuffix}-${safeName}`;
