@@ -692,9 +692,8 @@ const createTicketFromEmail = async (emailData) => {
                     html: `
                         <div style="font-family: Arial, sans-serif; color: #333;">
                             <p>Thank you for reaching out to us. We have received your ticket and our team will get back to you as soon as possible.</p>
-                            <p>Please note that this is an automated response and this email box is not be monitored.</p>
+                            <p>this is an system generated email Please Dont Reply</p>
                             <br/>
-                            <p>Sorry for Inconvenience.</p>
                             <hr/>
                             <p style="font-size: 12px; color: #666;">EdgeStone Support Team</p>
                         </div>
