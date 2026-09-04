@@ -412,6 +412,7 @@ const createTicketFromEmail = async (emailData) => {
         let circuitId = null;
         let circuitUUID = null;
         let foundLocation = 'none';
+        let containsVendorCircuitId = false;
         try {
             // Fetch circuits including supplier IDs, clientId and vendorId for disambiguation
             const allCircuits = await prisma.circuit.findMany({ 
@@ -444,6 +445,9 @@ const createTicketFromEmail = async (emailData) => {
                         circuitId = matchingCircuit.customerCircuitId;
                         circuitUUID = matchingCircuit.id;
                         foundLocation = 'subject';
+                        if (matchingCircuit.supplierCircuitId && matchingCircuit.supplierCircuitId.toUpperCase() === vidUpper) {
+                            containsVendorCircuitId = true;
+                        }
                         logger.info(`🎟️ [TICKET] 🔍 Regex Pre-Check: Detected Circuit ID "${vid}" in SUBJECT. Skipping AI call.`);
                         break;
                     }
@@ -463,6 +467,9 @@ const createTicketFromEmail = async (emailData) => {
                             circuitId = matchingCircuit.customerCircuitId;
                             circuitUUID = matchingCircuit.id;
                             foundLocation = 'body';
+                            if (matchingCircuit.supplierCircuitId && matchingCircuit.supplierCircuitId.toUpperCase() === vidUpper) {
+                                containsVendorCircuitId = true;
+                            }
                             logger.info(`🎟️ [TICKET] 🔍 Regex Pre-Check: Detected Circuit ID "${vid}" in BODY. Skipping AI call.`);
                             break;
                         }
@@ -481,6 +488,14 @@ const createTicketFromEmail = async (emailData) => {
                 const detectedCircuitRecord = allCircuits.find(c => c.customerCircuitId === circuitId || c.supplierCircuitId === circuitId);
                 if (detectedCircuitRecord) {
                     let matchedCircuitVendorId = null;
+
+                    if (detectedCircuitRecord.supplierCircuitId) {
+                        const suppIdUpper = detectedCircuitRecord.supplierCircuitId.toUpperCase();
+                        if (subjectUpper.includes(suppIdUpper) || bodyUpper.includes(suppIdUpper)) {
+                            containsVendorCircuitId = true;
+                            logger.info(`🎟️ [TICKET] Vendor circuit ID detected during disambiguation phase.`);
+                        }
+                    }
 
                     if (detectedCircuitRecord.isMultiVendor && detectedCircuitRecord.vendorCircuits && detectedCircuitRecord.vendorCircuits.length > 0) {
                         // For multi-vendor, check if sender matches any of the vendorCircuits' vendors
@@ -616,7 +631,7 @@ const createTicketFromEmail = async (emailData) => {
 
         // Auto-reply logic (re-enabled per requirement)
         // Skip auto-reply for tickets containing a vendor circuit Id
-        if (ticketType !== 'Vendor' && !vendorId) {
+        if (ticketType !== 'Vendor' && !vendorId && !containsVendorCircuitId) {
             try {
                 const emailService = require('./emailService');
                 const autoReplySubject = `Ticket Received: [${ticket.ticketId}] ${ticket.header}`;
