@@ -194,6 +194,7 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
         type: 'client',
         category: 'client',
         to: [from],
+        cc: emailData.cc || [],
         messageId: emailData.messageId || null,
         attachments: emailData.attachments || []
     });
@@ -247,6 +248,7 @@ const appendVendorReplyToTicket = async (ticket, emailData, vendorId = null) => 
         type: 'vendor',
         category: vendorId ? `vendor_${vendorId}` : 'vendor',
         to: [from],
+        cc: emailData.cc || [],
         messageId: emailData.messageId || null,
         attachments: emailData.attachments || []
     });
@@ -577,6 +579,7 @@ const createTicketFromEmail = async (emailData) => {
                 clientId: clientId,
                 vendorId: vendorId,
                 ticketType: ticketType,
+                cc: emailData.cc || [],
                 replies: {
                     create: {
                         text: stripQuotedReply(stripHtml(body)) || '(No Content)',

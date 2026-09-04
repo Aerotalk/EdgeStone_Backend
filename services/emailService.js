@@ -206,7 +206,7 @@ const fetchNewGraphEmails = async () => {
     try {
         const accessToken = await getGraphAccessToken();
         const userEmail = process.env.SENDER_EMAIL || process.env.MAIL_USER;
-        const messagesUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/mailFolders/inbox/messages?$filter=isRead eq false&$top=20&$select=id,internetMessageId,subject,from,toRecipients,body,receivedDateTime,internetMessageHeaders,hasAttachments`;
+        const messagesUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/mailFolders/inbox/messages?$filter=isRead eq false&$top=20&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,body,receivedDateTime,internetMessageHeaders,hasAttachments`;
 
         const response = await fetch(messagesUrl, { headers: { 'Authorization': `Bearer ${accessToken}` } });
         if (!response.ok) return;
@@ -246,6 +246,7 @@ const fetchNewGraphEmails = async () => {
                 messageId: messageId,
                 inReplyTo: null,
                 references: null,
+                cc: msg.ccRecipients ? msg.ccRecipients.map(r => r.emailAddress?.address).filter(Boolean) : [],
                 attachments: []
             };
 

@@ -107,6 +107,7 @@ model Ticket {
   
   isSlaActive Boolean @default(true)
   isMaintenance Boolean @default(false)
+  cc String[] @default([])
 
   replies      Reply[]
   notes        Note[]
