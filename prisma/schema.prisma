@@ -106,6 +106,7 @@ model Ticket {
   updatedAt DateTime @updatedAt
   
   isSlaActive Boolean @default(true)
+  isMaintenance Boolean @default(false)
 
   replies      Reply[]
   notes        Note[]

@@ -614,7 +614,38 @@ const createTicketFromEmail = async (emailData) => {
             notificationService.sendNotification({ type: 'new_ticket', message: `New Ticket Raised: ${ticket.ticketId}`, ticketId: ticket.ticketId });
         } catch(err) { logger.error(`Notification Error: ${err.message}`) }
 
-        // Auto-reply has been moved to manual manual trigger on the frontend.
+        // Auto-reply logic (re-enabled per requirement)
+        // Skip auto-reply for tickets containing a vendor circuit Id
+        if (ticketType !== 'Vendor' && !vendorId) {
+            try {
+                const emailService = require('./emailService');
+                const autoReplySubject = `Ticket Received: [${ticket.ticketId}] ${ticket.header}`;
+                const autoReplyText = `Dear Customer,\n\nYour ticket has been received and created. Ticket ID: ${ticket.ticketId}\n\nOur team will review your request and get back to you shortly.\n\nThank you,\nSupport Team`;
+                const autoReplyHtml = `
+                    <div style="font-family: Arial, sans-serif;">
+                        <p>Dear Customer,</p>
+                        <p>Your ticket has been received and created.</p>
+                        <p><strong>Ticket ID:</strong> ${ticket.ticketId}</p>
+                        <p>Our team will review your request and get back to you shortly.</p>
+                        <br/>
+                        <p>Thank you,<br/>Support Team</p>
+                    </div>
+                `;
+
+                logger.info(`🎟️ [TICKET] 🤖 Sending Auto-Reply to ${from} for Ticket ${ticket.ticketId}`);
+                await emailService.sendEmail({
+                    to: [from],
+                    subject: autoReplySubject,
+                    text: autoReplyText,
+                    html: autoReplyHtml
+                });
+            } catch(err) {
+                logger.error(`🎟️ [TICKET] ❌ Auto-Reply Error: ${err.message}`);
+            }
+        } else {
+            logger.info(`🎟️ [TICKET] 🛑 Skipped Auto-Reply for Ticket ${ticket.ticketId} (Vendor ticket)`);
+        }
+
         return ticket;
 
     } catch (error) {
