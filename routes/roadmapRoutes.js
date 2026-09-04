@@ -4,6 +4,4 @@ const { protect } = require('../middlewares/authMiddleware');
 const roadmapController = require('../controllers/roadmapController');
 
 router.get('/',roadmapController.getRoadmap);
-router.post('/analyze',roadmapController.analyzeRoadmap);
-
 module.exports = router;

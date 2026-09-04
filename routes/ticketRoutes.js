@@ -19,6 +19,8 @@ router.post('/:ticketId/work-notes', protect, workNoteController.createWorkNote)
 router.get('/:ticketId/work-notes', protect, workNoteController.getWorkNotes);
 
 // Activity Logs routes
-router.get('/:ticketId/activity-logs', protect, activityLogController.getActivityLogs);
+router.get('/:id/activity-logs', protect, activityLogController.getActivityLogs);
+
+router.post('/:id/auto-reply', protect, ticketController.sendAutoReply);
 
 module.exports = router;

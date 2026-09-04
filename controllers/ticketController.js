@@ -129,6 +129,23 @@ const toggleSla = async (req, res, next) => {
     }
 };
 
+const sendAutoReply = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { toEmails } = req.body;
+        const agentName = req.user ? req.user.name : 'Agent';
+        const agentEmail = req.user ? req.user.email : 'support@edgestone.in';
+
+        logger.info(`🎟️ [TICKET] 🤖 Agent ${agentName} manually triggering auto-reply for ticket ${id} to ${toEmails}`);
+
+        const ticket = await ticketService.sendManualAutoReply(id, toEmails, agentName, agentEmail);
+        res.json({ message: 'Auto-reply sent successfully', ticket });
+    } catch (error) {
+        logger.error(`🚨 🎟️ [TICKET] ❌ Error sending auto-reply: ${error.message}`);
+        next(error);
+    }
+};
+
 module.exports = {
     getTickets,
     createTicket,
@@ -136,5 +153,6 @@ module.exports = {
     replyTicket,
     replyVendorTicket,
     getVendorEmails,
-    toggleSla
+    toggleSla,
+    sendAutoReply
 };

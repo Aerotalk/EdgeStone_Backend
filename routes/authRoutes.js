@@ -5,10 +5,6 @@ const { protect, requireSuperAdmin } = require('../middlewares/authMiddleware');
 
 router.post('/login', authController.login);
 
-// Password Reset Routes
-router.post('/forgot-password', authController.forgotPassword);
-router.post('/reset-password', authController.resetPassword);
-
 // Get current authenticated user
 router.get('/me', protect, authController.getMe);
 

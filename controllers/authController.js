@@ -1,37 +1,6 @@
 const authService = require('../services/authService');
 const logger = require('../utils/logger');
 
-const forgotPassword = async (req, res, next) => {
-    try {
-        const { email } = req.body;
-        if (!email) {
-            return res.status(400).json({ error: 'Email is required' });
-        }
-        await authService.forgotPassword(email);
-        res.json({ success: true, message: 'If an account exists with this email, a password reset link has been sent.' });
-    } catch (error) {
-        logger.error(`[AUTH] forgotPassword error: ${error.message}`);
-        next(error);
-    }
-};
-
-const resetPassword = async (req, res, next) => {
-    try {
-        const { token, newPassword } = req.body;
-        if (!token || !newPassword) {
-            return res.status(400).json({ error: 'Token and newPassword are required' });
-        }
-        await authService.resetPassword(token, newPassword);
-        res.json({ success: true, message: 'Password has been reset successfully.' });
-    } catch (error) {
-        logger.error(`[AUTH] resetPassword error: ${error.message}`);
-        if (error.message === 'Invalid or expired token' || error.message === 'Token has expired') {
-            return res.status(400).json({ error: error.message });
-        }
-        next(error);
-    }
-};
-
 const login = async (req, res, next) => {
     try {
         const { email } = req.body;
@@ -118,6 +87,4 @@ module.exports = {
     login,
     getMe,
     updateProfilePicture,
-    forgotPassword,
-    resetPassword
 };

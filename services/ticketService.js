@@ -412,9 +412,6 @@ const createTicketFromEmail = async (emailData) => {
         let circuitId = null;
         let circuitUUID = null;
         let foundLocation = 'none';
-
-        const aiService = require('./aiService');
-        
         try {
             // Fetch circuits including supplier IDs, clientId and vendorId for disambiguation
             const allCircuits = await prisma.circuit.findMany({ 
@@ -474,25 +471,9 @@ const createTicketFromEmail = async (emailData) => {
             }
 
             // ── STAGE 2: AI Fallback (only if regex didn't find anything) ──
-            // Handles ambiguous phrasing like "the above circuit ID" where the ID
-            // might be inferred from context across subject+body together.
+            // Removed as part of AI decommissioning.
             if (!circuitId) {
-                logger.info(`🎟️ [TICKET] 🤖 Regex pre-check found nothing. Delegating to AI for Circuit ID detection...`);
-                const aiResult = await aiService.analyzeEmailForCircuitId(subject, body, validCircuitIds);
-                
-                if (aiResult && aiResult.circuitId && aiResult.foundIn !== 'none') {
-                    const matchingCircuit = allCircuits.find(c => 
-                        (c.customerCircuitId && c.customerCircuitId.toUpperCase() === aiResult.circuitId.toUpperCase()) || 
-                        (c.supplierCircuitId && c.supplierCircuitId.toUpperCase() === aiResult.circuitId.toUpperCase())
-                    );
-                    
-                    if (matchingCircuit) {
-                        circuitId = matchingCircuit.customerCircuitId;
-                        circuitUUID = matchingCircuit.id;
-                        foundLocation = aiResult.foundIn;
-                        logger.info(`🎟️ [TICKET] 🧠 AI Smart Auto-Detected Circuit ID: ${aiResult.circuitId} in ${foundLocation}`);
-                    }
-                }
+                logger.info(`🎟️ [TICKET] Regex pre-check found nothing. Ticket lacks a valid Circuit ID.`);
             }
 
             // --- Disambiguate Sender based on detected circuit ---
@@ -535,46 +516,8 @@ const createTicketFromEmail = async (emailData) => {
 
         // 🛡️ CRITICAL GATE: If no circuit matches the DB, absolutely DO NOT create a ticket!
         if (!circuitId) {
-            logger.warn(`⚠️ 🎟️ [TICKET] 🚫 DROPPED EMAIL: Subject "${subject}" from ${from} does not contain any recognized Circuit ID natively or via AI. Ticket will NOT be created.`);
-            
-            // Send AI rejection email if they are a valid Client
-            if (clientId) {
-                logger.info(`🤖 🎟️ [TICKET] Sending AI missing-circuit rejection email to valid client: ${from}`);
-                const aiReplyText = await aiService.generateMissingCircuitIdReply(fromName || from, subject, body);
-                const emailService = require('./emailService');
-                
-                emailService.sendEmail({
-                    to: from,
-                    subject: `Re: ${subject || 'Support Request'}`,
-                    text: aiReplyText,
-                    html: `<div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">${aiReplyText.replace(/\n/g, '<br>')}</div>`
-                }).catch(err => logger.error(`🚨 [TICKET] Failed to send missing-circuit rejection email: ${err.message}`));
-            }
-            
+            logger.warn(`⚠️ 🎟️ [TICKET] 🚫 DROPPED EMAIL: Subject "${subject}" from ${from} does not contain any recognized Circuit ID. Ticket will NOT be created.`);
             return null;
-        }
-
-        // 💡 NEW TICKET AI RULE: Circuit ID found in body but NOT subject -> create ticket but send a warning back
-        if (foundLocation === 'body') {
-             logger.info(`⚠️ 🎟️ [TICKET] AI detected Circuit ID (${circuitId}) only in the body. Triggering AI warning email.`);
-             
-             // Wrap in an async IIFE to fire-and-forget without blocking ticket creation
-             (async () => {
-                 try {
-                     const aiWarningText = await aiService.generateBodyCircuitIdWarning(fromName || from, circuitId);
-                     const emailService = require('./emailService');
-                     
-                     await emailService.sendEmail({
-                        to: from,
-                        subject: `Re: ${subject || 'Your Support Request'}`,
-                        html: `<div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">${aiWarningText.replace(/\n/g, '<br>')}</div>`,
-                        text: aiWarningText,
-                     });
-                     logger.info(`🤖 🎟️ [TICKET] Successfully sent AI warning email about putting Circuit ID in subject to ${from}`);
-                 } catch (err) {
-                     logger.error(`🚨 [TICKET] Failed to send AI warning email: ${err.message}`);
-                 }
-             })();
         }
 
         // 🛡️ STOP VENDOR TICKETS: As per client request, Vendors cannot raise NEW tickets.
@@ -671,66 +614,7 @@ const createTicketFromEmail = async (emailData) => {
             notificationService.sendNotification({ type: 'new_ticket', message: `New Ticket Raised: ${ticket.ticketId}`, ticketId: ticket.ticketId });
         } catch(err) { logger.error(`Notification Error: ${err.message}`) }
 
-        // Note: SLA creation has been moved to appendVendorReplyToTicket 
-        // to strictly enforce that SLA only begins when the Vendor replies.
-        // 6. Send Auto-Reply with 5-second delay (Only for Clients)
-        if (ticketType === 'Vendor') {
-            logger.info(`🎟️ [TICKET] ⏰ Skipping auto-reply for Vendor ticket ${ticket.ticketId} to prevent infinite automated loops.`);
-            return ticket;
-        }
-        // Lazy load emailService to avoid circular dependency
-        const emailService = require('./emailService');
-
-        logger.info(`🎟️ [TICKET] ⏰ Scheduling auto-reply to ${from} in 5 seconds...`);
-
-        setTimeout(async () => {
-            try {
-                logger.info(`🎟️ [TICKET] 🔄 Initiating auto-reply sequence for Ticket ${ticket.ticketId}...`);
-                await emailService.sendEmail({
-                    to: from,
-                    subject: `Re: [${ticket.ticketId}] ${ticket.header}`,
-                    html: `
-                        <div style="font-family: Arial, sans-serif; color: #333;">
-                            <p>Thank you for reaching out to us. We have received your ticket and our team will get back to you as soon as possible.</p>
-                            <p>this is an system generated email Please Dont Reply</p>
-                            <br/>
-                            <hr/>
-                            <p style="font-size: 12px; color: #666;">EdgeStone Support Team</p>
-                        </div>
-                    `,
-                    text: `Thank you for reaching out to us. We have received your ticket and our team will get back to you as soon as possible. Please note that this is an automated response and this email box is not be monitored.`,
-                    inReplyTo: messageId,
-                    references: messageId
-                });
-
-                logger.info(`🎟️ [TICKET] 📤 Auto-reply sent successfully to ${from}`);
-
-                // Log auto-reply activity
-                const ActivityLogModel = require('../models/activityLog');
-                const now = new Date();
-                await ActivityLogModel.createActivityLog({
-                    ticketId: ticket.id,
-                    action: 'auto_replied',
-                    description: 'Auto-reply sent to customer',
-                    time: now.toLocaleTimeString('en-US', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        hour12: false
-                    }),
-                    date: now.toLocaleDateString('en-GB', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric'
-                    }),
-                    author: 'System'
-                });
-            } catch (error) {
-                logger.error(`🚨 🎟️ [TICKET] ❌ FAILED to send auto-reply for Ticket ${ticket.ticketId}`);
-                logger.error(`🚨 🎟️ [TICKET] ❌ Reason: ${error.message}`);
-                logger.error(`🚨 🎟️ [TICKET] ⚠️ Check EMAIL_PROVIDER and provider credentials (ZEPTO_MAIL_TOKEN / RESEND_API_KEY).`, { stack: error.stack });
-            }
-        }, 5000); // 5 seconds delay
-
+        // Auto-reply has been moved to manual manual trigger on the frontend.
         return ticket;
 
     } catch (error) {
@@ -1040,13 +924,63 @@ const updateTicket = async (ticketId, updates, agentName) => {
         throw error;
     }
 };
+const sendManualAutoReply = async (ticketId, toEmails, agentName = 'System', agentEmail = 'support@edgestone.in') => {
+    try {
+        const { PrismaClient } = require('@prisma/client');
+        const prisma = new PrismaClient();
+        const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
+        if (!ticket) throw new Error('Ticket not found');
+        
+        const emailService = require('./emailService');
+        const messageId = ticket.messageId;
+        
+        // Use provided toEmails or fallback to ticket email
+        const targetEmails = (toEmails && toEmails.length > 0) ? toEmails : [ticket.email];
 
-
+        logger.info(`🎟️ [TICKET] 🤖 Sending manual auto-reply to ${targetEmails.join(', ')} for Ticket ${ticket.ticketId}...`);
+        
+        await emailService.sendEmail({
+            to: targetEmails,
+            subject: `Re: [${ticket.ticketId}] ${ticket.header}`,
+            html: `
+                <div style="font-family: Arial, sans-serif; color: #333;">
+                    <p>Thank you for reaching out to us. We have received your ticket and our team will get back to you as soon as possible.</p>
+                    <p>Please note that this is an automated response and this email box is not be monitored.</p>
+                    <br/>
+                    <p>Sorry for Inconvenience.</p>
+                    <hr/>
+                    <p style="font-size: 12px; color: #666;">EdgeStone Support Team</p>
+                </div>
+            `,
+            text: `Thank you for reaching out to us. We have received your ticket and our team will get back to you as soon as possible. Please note that this is an automated response and this email box is not be monitored.`,
+            inReplyTo: messageId,
+            references: messageId
+        });
+        
+        const ActivityLogModel = require('../models/activityLog');
+        const now = new Date();
+        await ActivityLogModel.createActivityLog({
+            ticketId: ticket.id,
+            action: 'auto_replied',
+            description: `Auto-reply manually sent to ${targetEmails.join(', ')}`,
+            time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+            date: now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+            author: agentName
+        });
+        
+        logger.info(`🎟️ [TICKET] 📤 Manual Auto-reply sent successfully to ${targetEmails.join(', ')}`);
+        
+        return ticket;
+    } catch (error) {
+        logger.error(`🚨 🎟️ [TICKET] ❌ FAILED to send manual auto-reply for Ticket ${ticketId}: ${error.message}`);
+        throw error;
+    }
+};
 
 module.exports = {
     createTicketFromEmail,
     getTickets,
     updateTicket,
-    replyToTicket
+    replyToTicket,
+    sendManualAutoReply
 };
-
