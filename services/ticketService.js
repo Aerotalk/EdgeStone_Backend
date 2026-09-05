@@ -537,12 +537,6 @@ const createTicketFromEmail = async (emailData) => {
             return null;
         }
 
-        // 🔍 MAINTENANCE DETECTION: Auto-flag vendor tickets with 'maintenance' in subject
-        const isMaintenance = ticketType === 'Vendor' && /maintenan/i.test(subject || '');
-        const ticketStatus = isMaintenance ? 'Maintenance' : 'Open';
-        if (ticketType === 'Vendor') {
-            logger.info(`🎟️ [TICKET] 🏢 Vendor is raising a new ticket. Subject: "${subject}". isMaintenance: ${isMaintenance}`);
-        }
 
         let ticketId;
         let ticket;
@@ -566,9 +560,8 @@ const createTicketFromEmail = async (emailData) => {
                 ticketId,
                 header: subject || 'No Subject',
                 email: from,
-                status: ticketStatus,
+                status: 'Open',
                 priority: 'Medium',
-                isMaintenance: isMaintenance,
                 circuitId: circuitId, // Add circuitId to ticket
                 messageId: messageId, // Store original email messageId for threading
                 receivedAt: emailReceivedDate, // NEW: Store ISO timestamp
