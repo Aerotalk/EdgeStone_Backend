@@ -363,8 +363,10 @@ const createTicketFromEmail = async (emailData) => {
                 finalVendorId = prioritizedVendor ? prioritizedVendor.id : matchedVendors[0].id;
             }
 
-            // PREVENT FALSE POSITIVE: If the sender is the original client, don't default to vendor thread
-            if (existingTicket.email && existingTicket.email.toLowerCase() === from.toLowerCase()) {
+            // PREVENT FALSE POSITIVE: If the sender is the original ticket-raiser AND is NOT a known vendor,
+            // route to client thread. But if they ARE a known vendor (e.g. vendor who raised a maintenance ticket
+            // and is now replying to it), keep isVendor = true so the reply goes to the Vendor tab.
+            if (existingTicket.email && existingTicket.email.toLowerCase() === from.toLowerCase() && !isVendor) {
                 isVendor = false;
                 finalVendorId = null;
             }
