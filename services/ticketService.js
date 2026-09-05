@@ -214,9 +214,10 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
     logger.info(`🎟️ [TICKET] ✅ Client reply appended to Ticket ${ticket.ticketId}`);
     try {
         const notificationService = require('./notificationService');
-        let message = `Customer replied to Ticket ${ticket.ticketId}`;
+        const senderLabel = ticket.ticketType === 'Vendor' ? 'Vendor' : 'Customer';
+        let message = `${senderLabel} replied to Ticket ${ticket.ticketId}`;
         if (ticket.status.toLowerCase() === 'closed') {
-            message = `Customer replied to Ticket ${ticket.ticketId} which is closed, please re-open it to continue conversation`;
+            message = `${senderLabel} replied to Ticket ${ticket.ticketId} which is closed, please re-open it to continue conversation`;
         }
         notificationService.sendNotification({ type: 'client_reply', message, ticketId: ticket.ticketId });
     } catch(err) { logger.error(`Notification Error: ${err.message}`) }
