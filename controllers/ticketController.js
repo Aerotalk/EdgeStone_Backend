@@ -28,16 +28,19 @@ const createTicket = async (req, res, next) => {
 const updateTicket = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { circuitId, priority, status } = req.body;
+        const { circuitId, priority, status, isMaintenance } = req.body;
 
         logger.debug(`🐞 🎟️ [TICKET] 📝 Request received: updateTicket for ticket ${id}`);
 
         const agentName = req.user ? req.user.name : 'Agent';
         const agentEmail = req.user ? req.user.email : 'support@edgestone.in';
 
+        const updates = { circuitId, priority, status };
+        if (isMaintenance !== undefined) updates.isMaintenance = isMaintenance;
+
         const updatedTicket = await ticketService.updateTicket(
             id,
-            { circuitId, priority, status },
+            updates,
             agentName
         );
 
