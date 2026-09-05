@@ -537,10 +537,11 @@ const createTicketFromEmail = async (emailData) => {
             return null;
         }
 
-        // 🛡️ STOP VENDOR TICKETS: As per client request, Vendors cannot raise NEW tickets.
+        // 🔍 MAINTENANCE DETECTION: Auto-flag vendor tickets with 'maintenance' in subject
+        const isMaintenance = ticketType === 'Vendor' && /maintenan/i.test(subject || '');
+        const ticketStatus = isMaintenance ? 'Maintenance' : 'Open';
         if (ticketType === 'Vendor') {
-            logger.warn(`⚠️ 🎟️ [TICKET] 🚫 DROPPED EMAIL: Subject "${subject}" from Vendor ${from}. Vendors are not allowed to raise new tickets. Email ignored.`);
-            return null;
+            logger.info(`🎟️ [TICKET] 🏢 Vendor is raising a new ticket. Subject: "${subject}". isMaintenance: ${isMaintenance}`);
         }
 
         let ticketId;
@@ -565,8 +566,9 @@ const createTicketFromEmail = async (emailData) => {
                 ticketId,
                 header: subject || 'No Subject',
                 email: from,
-                status: 'Open',
+                status: ticketStatus,
                 priority: 'Medium',
+                isMaintenance: isMaintenance,
                 circuitId: circuitId, // Add circuitId to ticket
                 messageId: messageId, // Store original email messageId for threading
                 receivedAt: emailReceivedDate, // NEW: Store ISO timestamp
@@ -632,9 +634,9 @@ const createTicketFromEmail = async (emailData) => {
             notificationService.sendNotification({ type: 'new_ticket', message: `New Ticket Raised: ${ticket.ticketId}`, ticketId: ticket.ticketId });
         } catch(err) { logger.error(`Notification Error: ${err.message}`) }
 
-        // Auto-reply logic (re-enabled per requirement)
-        // Skip auto-reply for tickets containing a vendor circuit Id
-        if (ticketType !== 'Vendor' && !vendorId && !containsVendorCircuitId) {
+        // Auto-reply logic
+        // Skip auto-reply for all vendor-raised tickets (including maintenance)
+        if (ticketType !== 'Vendor') {
             try {
                 const emailService = require('./emailService');
                 const autoReplySubject = `Ticket Received: [${ticket.ticketId}] ${ticket.header}`;
