@@ -35,7 +35,8 @@ const getAllSLARecords = async ({ search, filter, customStart, customEnd, type }
             where: {
                 OR: [
                     { customerCircuitId: { in: circuitIdsToFetch } },
-                    { supplierCircuitId: { in: circuitIdsToFetch } }
+                    { supplierCircuitId: { in: circuitIdsToFetch } },
+                    { id: { in: circuitIdsToFetch } }
                 ]
             },
             include: {
@@ -233,7 +234,8 @@ const updateSLAClosure = async (id, closeDate, closedTime, oldRecordOverride = n
                         where: {
                             OR: [
                                 { customerCircuitId: circuitId },
-                                { supplierCircuitId: circuitId }
+                                { supplierCircuitId: circuitId },
+                                { id: circuitId }
                             ]
                         },
                         select: { id: true, mrc: true, supplierMrc: true }

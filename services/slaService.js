@@ -472,7 +472,7 @@ async function calculateSla(slaId, downtimeMinutes, totalUptimeMinutes) {
             where: {
                 ticket: {
                     circuitId: {
-                        in: [circuit.customerCircuitId, circuit.supplierCircuitId].filter(Boolean)
+                        in: [circuit.customerCircuitId, circuit.supplierCircuitId, circuit.id].filter(Boolean)
                     }
                 },
                 type: sla.appliesTo === 'VENDOR' ? 'VENDOR' : 'CLIENT'

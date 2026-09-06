@@ -96,13 +96,14 @@ const generateTicketId = async (ticketType = 'Client') => {
 //   2. References header   → checks each ID in the chain
 //   3. Re: subject match   → last resort for clients that strip headers
 // ─────────────────────────────────────────────────────────────────────────────
-const findExistingTicketForReply = async (inReplyTo, references, subject) => {
+const findExistingTicketForReply = async (inReplyTo, references, subject, body = '') => {
     // 0. Strategy A: Subject regex extraction (Most Reliable)
-    // Agent replies always have "[#1234]" or "[#V1234]" or "[#1234-V]" in the subject.
+    // Supports [#1234], [1234], [#V1234], [V1234], [#1234-V], [1234-V]
     if (subject) {
-        const ticketIdMatch = subject.match(/\[(#V?\d+)(?:-V)?\]/i);
+        const ticketIdMatch = subject.match(/\[#?(V?\d+)(?:-V)?\]/i);
         if (ticketIdMatch && ticketIdMatch[1]) {
-            const friendlyId = ticketIdMatch[1].toUpperCase(); // standardize case
+            const rawId = ticketIdMatch[1];
+            const friendlyId = (rawId.startsWith('#') ? rawId : '#' + rawId).toUpperCase();
             const prisma = require('../models/index');
             const ticket = await prisma.ticket.findFirst({
                 where: { ticketId: { equals: friendlyId, mode: 'insensitive' } }
@@ -127,6 +128,7 @@ const findExistingTicketForReply = async (inReplyTo, references, subject) => {
         const reply = await TicketModel.findReplyByMessageId(cleanId);
         if (reply && reply.ticket) {
             logger.info(`🎟️ [TICKET] 🧵 Reply matched via In-Reply-To (Agent Reply): ${cleanId} → Ticket ${reply.ticket.ticketId}`);
+            reply.ticket._matchedReply = reply;
             return reply.ticket;
         }
     }
@@ -145,31 +147,69 @@ const findExistingTicketForReply = async (inReplyTo, references, subject) => {
             const reply = await TicketModel.findReplyByMessageId(refId);
             if (reply && reply.ticket) {
                 logger.info(`🎟️ [TICKET] 🧵 Reply matched via References (Reply): ${refId} → Ticket ${reply.ticket.ticketId}`);
+                reply.ticket._matchedReply = reply;
                 return reply.ticket;
             }
         }
     }
 
     // 3. Subject fallback: "Re: <original subject>" — strip Re:/Fwd: prefixes and match
-    // BUG FIX: Only apply subject fallback if it ACTUALLY had a Re:/Fwd: prefix!
-    // This prevents generic subjects like "Test", "Urgent", or "Help" from cross-contaminating unrelated tickets.
+    // CHG-016: Disambiguate by Circuit ID if the reply mentions a circuit!
     if (subject) {
         const isReplyPattern = /^(Re|Fwd|FW|RE|FWD):\s*/i.test(subject);
         const stripped = subject.replace(/^(Re|Fwd|FW|RE|FWD):\s*/gi, '').trim();
         
         if (stripped && isReplyPattern) {
             const prisma = require('../models/index');
-            // Fetch tickets ordered by newest first! So if a vendor sends 10 maintenance emails 
-            // with the EXACT same subject, the reply matches the most recent one!
+            // Fetch circuits to check if a circuit ID is explicitly mentioned in the reply
+            const allCircuits = await prisma.circuit.findMany({
+                select: { id: true, customerCircuitId: true, supplierCircuitId: true }
+            });
+            
+            const textToScan = `${subject} ${body || ''}`.toUpperCase();
+            let detectedCircuitId = null;
+            for (const c of allCircuits) {
+                if (c.customerCircuitId && textToScan.includes(c.customerCircuitId.toUpperCase())) {
+                    detectedCircuitId = c.customerCircuitId;
+                    break;
+                }
+                if (c.supplierCircuitId && textToScan.includes(c.supplierCircuitId.toUpperCase())) {
+                    detectedCircuitId = c.supplierCircuitId;
+                    break;
+                }
+            }
+
             const allTickets = await prisma.ticket.findMany({ 
-                select: { id: true, ticketId: true, header: true },
+                where: {
+                    status: { notIn: ['Spam'] }
+                },
+                select: { id: true, ticketId: true, header: true, circuitId: true, status: true },
                 orderBy: { createdAt: 'desc' }
             });
-            const match = allTickets.find(t =>
-                t.header && t.header.replace(/^(Re|Fwd|FW|RE|FWD):\s*/gi, '').trim() === stripped
-            );
+
+            // If a circuit was detected, prioritize matching tickets on that specific circuit!
+            let match = null;
+            if (detectedCircuitId) {
+                match = allTickets.find(t =>
+                    t.circuitId === detectedCircuitId &&
+                    t.header && t.header.replace(/^(Re|Fwd|FW|RE|FWD):\s*/gi, '').trim().toLowerCase() === stripped.toLowerCase()
+                );
+                if (match) {
+                    logger.info(`🎟️ [TICKET] 🧵 Reply matched via subject + Circuit ID "${detectedCircuitId}": "${stripped}" → Ticket ${match.ticketId}`);
+                }
+            }
+
+            // Otherwise standard subject match
+            if (!match) {
+                match = allTickets.find(t =>
+                    t.header && t.header.replace(/^(Re|Fwd|FW|RE|FWD):\s*/gi, '').trim().toLowerCase() === stripped.toLowerCase()
+                );
+                if (match) {
+                    logger.info(`🎟️ [TICKET] 🧵 Reply matched via subject fallback: "${stripped}" → Ticket ${match.ticketId}`);
+                }
+            }
+
             if (match) {
-                logger.info(`🎟️ [TICKET] 🧵 Reply matched via subject fallback: "${stripped}" → Ticket ${match.ticketId}`);
                 return await TicketModel.findTicketById(match.id);
             }
         }
@@ -221,13 +261,35 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
         author: fromName || from,
     });
 
+    // CHG-015: Update ticket.cc if incoming email has CCs or comes from a new CC participant
+    try {
+        const prisma = require('../models/index');
+        const existingCcs = Array.isArray(ticket.cc) ? ticket.cc : [];
+        const incomingCcs = Array.isArray(emailData.cc) ? emailData.cc : [];
+        const newParticipants = [...existingCcs, ...incomingCcs];
+        if (from && from.toLowerCase() !== ticket.email?.toLowerCase()) {
+            newParticipants.push(from);
+        }
+        const mergedCcs = Array.from(new Set(newParticipants.map(e => e.trim().toLowerCase()))).filter(e => e && e !== ticket.email?.toLowerCase());
+        
+        if (mergedCcs.length !== existingCcs.length) {
+            await prisma.ticket.update({
+                where: { id: ticket.id },
+                data: { cc: { set: mergedCcs } }
+            });
+            logger.info(`🎟️ [TICKET] 👥 Updated ticket CC list for Ticket ${ticket.ticketId}: ${mergedCcs.join(', ')}`);
+        }
+    } catch (ccErr) {
+        logger.error(`Failed to update ticket.cc in appendClientReplyToTicket: ${ccErr.message}`);
+    }
+
     logger.info(`🎟️ [TICKET] ✅ Client reply appended to Ticket ${ticket.ticketId}`);
     try {
         const notificationService = require('./notificationService');
         const senderLabel = ticket.ticketType === 'Vendor' ? 'Vendor' : 'Customer';
-        let message = `${senderLabel} replied to Ticket ${ticket.ticketId}`;
+        let message = `${senderLabel} (${fromName || from}) replied to Ticket ${ticket.ticketId}`;
         if (ticket.status.toLowerCase() === 'closed') {
-            message = `${senderLabel} replied to Ticket ${ticket.ticketId} which is closed, please re-open it to continue conversation`;
+            message = `${senderLabel} (${fromName || from}) replied to Ticket ${ticket.ticketId} which is closed, please re-open it to continue conversation`;
         }
         notificationService.sendNotification({ type: 'client_reply', message, ticketId: ticket.ticketId });
     } catch(err) { logger.error(`Notification Error: ${err.message}`) }
@@ -264,6 +326,24 @@ const appendVendorReplyToTicket = async (ticket, emailData, vendorId = null) => 
         attachments: emailData.attachments || []
     });
 
+    // CHG-015: Track incoming CCs on vendor reply
+    try {
+        const prisma = require('../models/index');
+        const existingCcs = Array.isArray(ticket.cc) ? ticket.cc : [];
+        const incomingCcs = Array.isArray(emailData.cc) ? emailData.cc : [];
+        if (incomingCcs.length > 0) {
+            const mergedCcs = Array.from(new Set([...existingCcs, ...incomingCcs].map(e => e.trim().toLowerCase()))).filter(Boolean);
+            if (mergedCcs.length !== existingCcs.length) {
+                await prisma.ticket.update({
+                    where: { id: ticket.id },
+                    data: { cc: { set: mergedCcs } }
+                });
+            }
+        }
+    } catch (ccErr) {
+        logger.error(`Failed to update ticket.cc in appendVendorReplyToTicket: ${ccErr.message}`);
+    }
+
     // Log activity
     const ActivityLogModel = require('../models/activityLog');
     const now = new Date();
@@ -279,7 +359,7 @@ const appendVendorReplyToTicket = async (ticket, emailData, vendorId = null) => 
     logger.info(`🎟️ [TICKET] ✅ Vendor reply appended to Ticket ${ticket.ticketId}`);
     try {
         const notificationService = require('./notificationService');
-        notificationService.sendNotification({ type: 'vendor_reply', message: `Vendor replied to Ticket ${ticket.ticketId}`, ticketId: ticket.ticketId });
+        notificationService.sendNotification({ type: 'vendor_reply', message: `Vendor (${fromName || from}) replied to Ticket ${ticket.ticketId}`, ticketId: ticket.ticketId });
     } catch(err) { logger.error(`Notification Error: ${err.message}`) }
 
     // --- AUTOMATIC SLA START ON FIRST VENDOR REPLY ---
@@ -335,7 +415,7 @@ const createTicketFromEmail = async (emailData) => {
         }
 
         // 0. Check if this email is a reply to an existing ticket
-        const existingTicket = await findExistingTicketForReply(inReplyTo, references, subject);
+        const existingTicket = await findExistingTicketForReply(inReplyTo, references, subject, body);
         if (existingTicket) {
             // Determine if the sender is a known Vendor (case-insensitive)
             const VendorModel = require('../models/vendor');
@@ -355,7 +435,7 @@ const createTicketFromEmail = async (emailData) => {
                 if (existingTicket.circuitId) {
                     try {
                         const circuit = await prisma.circuit.findFirst({
-                            where: { OR: [ { customerCircuitId: existingTicket.circuitId }, { id: existingTicket.circuitId } ] },
+                            where: { OR: [ { customerCircuitId: existingTicket.circuitId }, { supplierCircuitId: existingTicket.circuitId }, { id: existingTicket.circuitId } ] },
                             include: { vendorCircuits: true }
                         });
                         if (circuit) {
@@ -402,6 +482,15 @@ const createTicketFromEmail = async (emailData) => {
                 }
             }
 
+            // If the matched parent reply was in the vendor thread, force vendor routing
+            if (existingTicket._matchedReply && (existingTicket._matchedReply.category === 'vendor' || existingTicket._matchedReply.category?.startsWith('vendor_') || existingTicket._matchedReply.type === 'vendor')) {
+                logger.info(`🎟️ [TICKET] 🧵 Force-routing reply into Vendor thread due to parent reply in vendor thread`);
+                isVendor = true;
+                if (!finalVendorId && existingTicket._matchedReply.category?.startsWith('vendor_')) {
+                    finalVendorId = existingTicket._matchedReply.category.replace('vendor_', '');
+                }
+            }
+
             // PREVENT FALSE POSITIVE: If the sender is the original ticket-raiser AND is NOT a known vendor,
             // route to client thread. But if they ARE a known vendor (e.g. vendor who raised a maintenance ticket
             // and is now replying to it), keep isVendor = true so the reply goes to the Vendor tab.
@@ -410,12 +499,27 @@ const createTicketFromEmail = async (emailData) => {
                 finalVendorId = null;
             }
 
-            // EXPLICIT ROUTING: If the subject contains the explicit vendor suffix (e.g. [#1024-V]), force it into vendor thread
+            // EXPLICIT ROUTING: If the subject contains the explicit vendor suffix (e.g. [#1024-V] or [1024-V]), force it into vendor thread
             // even if the email doesn't strictly match the saved vendor emails list in the DB yet!
-            if (subject && /\[#V?\d+-V\]/i.test(subject)) {
+            if (subject && /\[#?V?\d+-V\]/i.test(subject)) {
                 logger.info(`🎟️ [TICKET] 🧵 Force-routing reply into Vendor thread due to -V tag in subject`);
                 isVendor = true;
                 if (!finalVendorId) finalVendorId = existingTicket.vendorId; // Default to primary vendor if unmapped
+            }
+
+            if (isVendor && !finalVendorId) {
+                finalVendorId = existingTicket.vendorId;
+                if (!finalVendorId && existingTicket.circuitId) {
+                    try {
+                        const prisma = require('../models/index');
+                        const circuit = await prisma.circuit.findFirst({
+                            where: { OR: [ { customerCircuitId: existingTicket.circuitId }, { supplierCircuitId: existingTicket.circuitId }, { id: existingTicket.circuitId } ] }
+                        });
+                        if (circuit) finalVendorId = circuit.vendorId;
+                    } catch (vErr) {
+                        logger.error(`Error finding circuit vendorId: ${vErr.message}`);
+                    }
+                }
             }
 
             if (isVendor) {
@@ -463,68 +567,78 @@ const createTicketFromEmail = async (emailData) => {
                 select: { id: true, customerCircuitId: true, supplierCircuitId: true, clientId: true, vendorId: true, isMultiVendor: true, vendorCircuits: true } 
             });
             
-            const validCircuitIds = [];
-            allCircuits.forEach(c => {
-                if (c.customerCircuitId) validCircuitIds.push(c.customerCircuitId);
-                if (c.supplierCircuitId) validCircuitIds.push(c.supplierCircuitId);
-            });
-            
-            // Sort by length descending to ensure longer IDs (e.g., temp-N1) are matched before shorter substrings (e.g., N1)
-            validCircuitIds.sort((a, b) => b.length - a.length);
+            // Helper to check for whole word / token boundary match (prevents substring collision)
+            const matchesCircuit = (text, targetId) => {
+                if (!text || !targetId) return false;
+                const escaped = targetId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const regex = new RegExp(`(?:^|[^a-zA-Z0-9_-])${escaped}(?:$|[^a-zA-Z0-9_-])`, 'i');
+                return regex.test(text);
+            };
 
-            // ── STAGE 1: Direct Regex Pre-Check (fast, reliable, AI-independent) ──
-            // Scans subject AND body for any known Circuit ID using case-insensitive string matching.
-            // This catches cases where the AI may fail, time out, or be disabled.
-            const subjectUpper = (subject || '').toUpperCase();
-            const bodyUpper = (body || '').toUpperCase();
+            const subjectText = subject || '';
+            const bodyText = body || '';
+            const subjectUpper = subjectText.toUpperCase();
+            const bodyUpper = bodyText.toUpperCase();
 
-            for (const vid of validCircuitIds) {
-                const vidUpper = vid.toUpperCase();
-                if (subjectUpper.includes(vidUpper)) {
-                    const matchingCircuit = allCircuits.find(c =>
-                        (c.customerCircuitId && c.customerCircuitId.toUpperCase() === vidUpper) ||
-                        (c.supplierCircuitId && c.supplierCircuitId.toUpperCase() === vidUpper)
-                    );
-                    if (matchingCircuit) {
-                        circuitId = matchingCircuit.customerCircuitId;
-                        circuitUUID = matchingCircuit.id;
-                        foundLocation = 'subject';
-                        if (matchingCircuit.supplierCircuitId && matchingCircuit.supplierCircuitId.toUpperCase() === vidUpper) {
-                            containsVendorCircuitId = true;
-                        }
-                        logger.info(`🎟️ [TICKET] 🔍 Regex Pre-Check: Detected Circuit ID "${vid}" in SUBJECT. Skipping AI call.`);
-                        break;
-                    }
-                }
+            // CHG-016: Client-Centric Prioritization
+            // When a client has multiple Circuit IDs, prioritize circuits belonging to that specific client
+            let priorityCircuits = [];
+            let secondaryCircuits = [];
+
+            if (potentialClientIds.length > 0) {
+                priorityCircuits = allCircuits.filter(c => c.clientId && potentialClientIds.includes(c.clientId));
+                secondaryCircuits = allCircuits.filter(c => !c.clientId || !potentialClientIds.includes(c.clientId));
+            } else if (potentialVendorIds.length > 0) {
+                priorityCircuits = allCircuits.filter(c => 
+                    (c.vendorId && potentialVendorIds.includes(c.vendorId)) ||
+                    (c.isMultiVendor && c.vendorCircuits && c.vendorCircuits.some(vc => potentialVendorIds.includes(vc.vendorId)))
+                );
+                secondaryCircuits = allCircuits.filter(c => !priorityCircuits.includes(c));
+            } else {
+                priorityCircuits = allCircuits;
             }
 
-            // If subject scan missed it, check the body
-            if (!circuitId) {
-                for (const vid of validCircuitIds) {
-                    const vidUpper = vid.toUpperCase();
-                    if (bodyUpper.includes(vidUpper)) {
-                        const matchingCircuit = allCircuits.find(c =>
-                            (c.customerCircuitId && c.customerCircuitId.toUpperCase() === vidUpper) ||
-                            (c.supplierCircuitId && c.supplierCircuitId.toUpperCase() === vidUpper)
-                        );
-                        if (matchingCircuit) {
-                            circuitId = matchingCircuit.customerCircuitId;
-                            circuitUUID = matchingCircuit.id;
-                            foundLocation = 'body';
-                            if (matchingCircuit.supplierCircuitId && matchingCircuit.supplierCircuitId.toUpperCase() === vidUpper) {
-                                containsVendorCircuitId = true;
-                            }
-                            logger.info(`🎟️ [TICKET] 🔍 Regex Pre-Check: Detected Circuit ID "${vid}" in BODY. Skipping AI call.`);
-                            break;
-                        }
+            const findMatchInPool = (circuitPool) => {
+                const poolIds = [];
+                circuitPool.forEach(c => {
+                    if (c.customerCircuitId) poolIds.push({ id: c.customerCircuitId, circuit: c, isSupplier: false });
+                    if (c.supplierCircuitId) poolIds.push({ id: c.supplierCircuitId, circuit: c, isSupplier: true });
+                });
+                poolIds.sort((a, b) => b.id.length - a.id.length);
+
+                // 1. Scan subject first
+                for (const item of poolIds) {
+                    if (matchesCircuit(subjectText, item.id)) {
+                        return { circuit: item.circuit, isSupplier: item.isSupplier, location: 'subject', matchedId: item.id };
                     }
                 }
+                // 2. Scan body
+                for (const item of poolIds) {
+                    if (matchesCircuit(bodyText, item.id)) {
+                        return { circuit: item.circuit, isSupplier: item.isSupplier, location: 'body', matchedId: item.id };
+                    }
+                }
+                return null;
+            };
+
+            // Search priority circuits first (belonging to sender client/vendor)
+            let matchResult = findMatchInPool(priorityCircuits);
+
+            // If not found in priority circuits, search secondary circuits
+            if (!matchResult && secondaryCircuits.length > 0) {
+                matchResult = findMatchInPool(secondaryCircuits);
             }
 
-            // ── STAGE 2: AI Fallback (only if regex didn't find anything) ──
-            // Removed as part of AI decommissioning.
-            if (!circuitId) {
-                logger.info(`🎟️ [TICKET] Regex pre-check found nothing. Ticket lacks a valid Circuit ID.`);
+            if (matchResult) {
+                circuitId = matchResult.circuit.customerCircuitId;
+                circuitUUID = matchResult.circuit.id;
+                foundLocation = matchResult.location;
+                if (matchResult.isSupplier) {
+                    containsVendorCircuitId = true;
+                }
+                logger.info(`🎟️ [TICKET] 🔍 Circuit Match: Detected Circuit ID "${matchResult.matchedId}" in ${matchResult.location.toUpperCase()} for Client ${matchResult.circuit.clientId || 'Unknown'}`);
+            } else {
+                logger.info(`🎟️ [TICKET] Circuit scan found no recognized Circuit ID in subject or body.`);
             }
 
             // --- Disambiguate Sender based on detected circuit ---
@@ -781,13 +895,76 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
 
         logger.info(`🎟️ [TICKET] ✅ Reply added to database for Ticket ${ticket.ticketId}`);
 
+        // CHG-015: Persist any new CC recipients to ticket.cc
+        if (ccEmails && ccEmails.length > 0) {
+            try {
+                const existingCcs = Array.isArray(ticket.cc) ? ticket.cc : [];
+                const mergedCcs = Array.from(new Set([...existingCcs, ...ccEmails].map(e => e.trim().toLowerCase()))).filter(Boolean);
+                await prisma.ticket.update({
+                    where: { id: ticket.id },
+                    data: { cc: { set: mergedCcs } }
+                });
+            } catch (ccSaveErr) {
+                logger.error(`Failed to update ticket.cc in replyToTicket: ${ccSaveErr.message}`);
+            }
+        }
+
+        // CHG-015: Fetch complete previous thread history to include in outbound email
+        const previousReplies = await prisma.reply.findMany({
+            where: { ticketId: ticket.id, category: 'client' },
+            orderBy: { createdAt: 'desc' },
+            take: 25
+        });
+
+        let threadHistoryHtml = '';
+        let threadHistoryText = '';
+
+        if (previousReplies.length > 0 || ticket.header) {
+            threadHistoryHtml = `
+                <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-family: Arial, sans-serif; color: #475569; font-size: 13px;">
+                    <div style="font-weight: bold; color: #334155; margin-bottom: 12px; font-size: 13px;">--- Previous Conversation ---</div>
+            `;
+            threadHistoryText = '\n\n--- Previous Conversation ---\n';
+
+            for (const prev of previousReplies) {
+                const authorDisplay = prev.author || 'Support';
+                const timeDisplay = `${prev.date || ''} ${prev.time || ''}`.trim();
+                const textBody = (prev.text || '').replace(/\n/g, '<br>');
+
+                threadHistoryHtml += `
+                    <div style="margin-bottom: 16px; padding-left: 12px; border-left: 2px solid #cbd5e1;">
+                        <div style="font-size: 12px; color: #64748b; margin-bottom: 4px;">
+                            <strong>${authorDisplay}</strong> • ${timeDisplay}
+                        </div>
+                        <div style="color: #334155; line-height: 1.5;">${textBody}</div>
+                    </div>
+                `;
+                threadHistoryText += `\n[${timeDisplay}] ${authorDisplay}:\n${prev.text || ''}\n`;
+            }
+
+            if (ticket.header) {
+                const ticketTime = ticket.date || '';
+                threadHistoryHtml += `
+                    <div style="margin-bottom: 16px; padding-left: 12px; border-left: 2px solid #cbd5e1;">
+                        <div style="font-size: 12px; color: #64748b; margin-bottom: 4px;">
+                            <strong>${ticket.email}</strong> • ${ticketTime}
+                        </div>
+                        <div style="color: #334155; line-height: 1.5;">Original Request: ${ticket.header}</div>
+                    </div>
+                `;
+                threadHistoryText += `\n[${ticketTime}] ${ticket.email}:\nOriginal Request: ${ticket.header}\n`;
+            }
+
+            threadHistoryHtml += `</div>`;
+        }
+
         // 3. Send Email to Client via MS Graph
         // If the frontend provided a pre-composed HTML body (with formatted signature + images),
         // use it directly. Otherwise fall back to plain-text → HTML conversion.
         const emailService = require('./emailService');
         logger.info(`🎟️ [TICKET] 📧 Sending Agent Reply Email to: ${recipientEmails.join(', ')} | Subject: ${emailSubject}`);
 
-        const emailHtml = htmlContent
+        const baseEmailHtml = htmlContent
             ? htmlContent   // ← Rich HTML: bold, italic, images, font colors all preserved
             : `<div style="font-family: Arial, sans-serif;">
                 <p>${message.replace(/\n/g, '<br>')}</p>
@@ -796,13 +973,16 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
                 <p style="font-size: 12px; color: #666;">${agentName}<br/>EdgeStone Support</p>
                </div>`;
 
+        const finalEmailHtml = baseEmailHtml + threadHistoryHtml;
+        const finalEmailText = (message || '') + threadHistoryText;
+
         const sentResult = await emailService.sendAgentReplyEmail({
             to: recipientEmails,
             cc: ccEmails,
             bcc: bccEmails,
             subject: emailSubject,
-            html: emailHtml,
-            text: message,   // plain-text fallback for clients that don't render HTML
+            html: finalEmailHtml,
+            text: finalEmailText,
             inReplyTo: threadMessageId,
             references: threadMessageId,
             attachments: attachments || []
