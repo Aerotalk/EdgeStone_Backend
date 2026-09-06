@@ -41,13 +41,34 @@ const logActivity = async (ticketId, action, description, author, oldValue = nul
 
 /**
  * Get all activity logs for a ticket
- * @param {string} ticketId - Ticket ID
+ * @param {string} ticketIdParam - Ticket UUID or friendly ticket ID (e.g. #V1023)
  * @returns {Promise<Array>} Array of activity logs
  */
-const getActivityLogs = async (ticketId) => {
-    logger.debug(`🐞 📜 [ACTIVITY] 📋 Fetching activity logs for ticket ${ticketId}`);
-    const logs = await ActivityLogModel.findActivityLogsByTicketId(ticketId);
-    logger.debug(`🐞 📜 [ACTIVITY] 🔢 Retrieved ${logs.length} activity logs.`);
+const getActivityLogs = async (ticketIdParam) => {
+    if (!ticketIdParam) return [];
+    logger.debug(`🐞 📜 [ACTIVITY] 📋 Fetching activity logs for ticket ${ticketIdParam}`);
+
+    const prisma = require('../models/index');
+    let actualTicketId = ticketIdParam;
+
+    if (typeof ticketIdParam === 'string' && ticketIdParam.startsWith('#')) {
+        const ticket = await prisma.ticket.findFirst({
+            where: { ticketId: { equals: ticketIdParam, mode: 'insensitive' } },
+            select: { id: true }
+        });
+        if (!ticket) return [];
+        actualTicketId = ticket.id;
+    } else {
+        const ticket = await prisma.ticket.findFirst({
+            where: { OR: [{ id: ticketIdParam }, { ticketId: ticketIdParam }] },
+            select: { id: true }
+        });
+        if (!ticket) return [];
+        actualTicketId = ticket.id;
+    }
+
+    const logs = await ActivityLogModel.findActivityLogsByTicketId(actualTicketId);
+    logger.debug(`🐞 📜 [ACTIVITY] 🔢 Retrieved ${logs.length} activity logs for ticket ${actualTicketId}.`);
     return logs;
 };
 

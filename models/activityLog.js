@@ -8,6 +8,7 @@ const ActivityLogModel = {
 
     // Find activity logs by ticket ID
     async findActivityLogsByTicketId(ticketId) {
+        if (!ticketId) return [];
         return prisma.activityLog.findMany({
             where: { ticketId },
             orderBy: { createdAt: 'desc' }

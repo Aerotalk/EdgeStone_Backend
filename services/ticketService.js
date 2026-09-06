@@ -139,8 +139,13 @@ const findExistingTicketForReply = async (inReplyTo, references, subject) => {
         for (const refId of refIds) {
             const ticket = await TicketModel.findTicketByMessageId(refId);
             if (ticket) {
-                logger.info(`🎟️ [TICKET] 🧵 Reply matched via References: ${refId} → Ticket ${ticket.ticketId}`);
+                logger.info(`🎟️ [TICKET] 🧵 Reply matched via References (Ticket): ${refId} → Ticket ${ticket.ticketId}`);
                 return ticket;
+            }
+            const reply = await TicketModel.findReplyByMessageId(refId);
+            if (reply && reply.ticket) {
+                logger.info(`🎟️ [TICKET] 🧵 Reply matched via References (Reply): ${refId} → Ticket ${reply.ticket.ticketId}`);
+                return reply.ticket;
             }
         }
     }
@@ -154,7 +159,12 @@ const findExistingTicketForReply = async (inReplyTo, references, subject) => {
         
         if (stripped && isReplyPattern) {
             const prisma = require('../models/index');
-            const allTickets = await prisma.ticket.findMany({ select: { id: true, ticketId: true, header: true } });
+            // Fetch tickets ordered by newest first! So if a vendor sends 10 maintenance emails 
+            // with the EXACT same subject, the reply matches the most recent one!
+            const allTickets = await prisma.ticket.findMany({ 
+                select: { id: true, ticketId: true, header: true },
+                orderBy: { createdAt: 'desc' }
+            });
             const match = allTickets.find(t =>
                 t.header && t.header.replace(/^(Re|Fwd|FW|RE|FWD):\s*/gi, '').trim() === stripped
             );
@@ -361,6 +371,35 @@ const createTicketFromEmail = async (emailData) => {
 
                 const prioritizedVendor = matchedVendors.find(v => circuitVendors.includes(v.id));
                 finalVendorId = prioritizedVendor ? prioritizedVendor.id : matchedVendors[0].id;
+
+                // ── SMART VENDOR ACTIVE TICKET DISAMBIGUATION ──
+                // When vendors reply via email, they often reply to an existing email thread in their email client
+                // which might contain an older ticket tag (e.g., [#V1018]). Since vendors are NEVER sent
+                // automated emails, if there is a newer active maintenance/open ticket for the same circuit and vendor,
+                // we intelligently route the vendor's reply to that active ticket (e.g., #V1023).
+                if (existingTicket.circuitId) {
+                    try {
+                        const newerActiveTicket = await prisma.ticket.findFirst({
+                            where: {
+                                circuitId: existingTicket.circuitId,
+                                id: { not: existingTicket.id },
+                                createdAt: { gt: existingTicket.createdAt },
+                                OR: [
+                                    { isMaintenance: true },
+                                    { status: { in: ['Maintenance', 'Open', 'In Progress'] } }
+                                ]
+                            },
+                            orderBy: { createdAt: 'desc' }
+                        });
+
+                        if (newerActiveTicket) {
+                            logger.info(`🎟️ [TICKET] 🔀 Disambiguated vendor reply: Redirected from older Ticket ${existingTicket.ticketId} to newer active Ticket ${newerActiveTicket.ticketId} on circuit ${existingTicket.circuitId}`);
+                            existingTicket = newerActiveTicket;
+                        }
+                    } catch (disErr) {
+                        logger.error(`Error in vendor ticket disambiguation: ${disErr.message}`);
+                    }
+                }
             }
 
             // PREVENT FALSE POSITIVE: If the sender is the original ticket-raiser AND is NOT a known vendor,

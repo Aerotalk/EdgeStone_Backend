@@ -236,6 +236,9 @@ const fetchNewGraphEmails = async () => {
                 continue;
             }
 
+            const inReplyToHeader = msg.internetMessageHeaders?.find(h => h.name?.toLowerCase() === 'in-reply-to')?.value || null;
+            const referencesHeader = msg.internetMessageHeaders?.find(h => h.name?.toLowerCase() === 'references')?.value || null;
+
             const emailData = {
                 from: fromAddr,
                 fromName: fromName,
@@ -244,8 +247,8 @@ const fetchNewGraphEmails = async () => {
                 html: msg.body?.contentType === 'html' ? msg.body?.content : null,
                 date: msg.receivedDateTime ? new Date(msg.receivedDateTime) : new Date(),
                 messageId: messageId,
-                inReplyTo: null,
-                references: null,
+                inReplyTo: inReplyToHeader,
+                references: referencesHeader,
                 cc: msg.ccRecipients ? msg.ccRecipients.map(r => r.emailAddress?.address).filter(Boolean) : [],
                 attachments: []
             };

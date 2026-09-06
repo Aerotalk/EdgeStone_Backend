@@ -7,7 +7,10 @@ const { getISTString } = require('../utils/timeUtils');
  */
 const getActivityLogs = async (req, res, next) => {
     try {
-        const { ticketId } = req.params;
+        const ticketId = req.params.id || req.params.ticketId;
+        if (!ticketId) {
+            return res.status(400).json({ error: 'Ticket ID is required' });
+        }
 
         // Detailed Entry Logging
         const requestMethod = req.method;
