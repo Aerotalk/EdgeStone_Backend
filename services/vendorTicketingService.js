@@ -175,57 +175,6 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
         });
         const threadMessageId = (replies.length > 0 && replies[0].messageId) ? replies[0].messageId : (ticket.messageId || null);
 
-        // CHG-015: Fetch previous vendor thread history to append to outbound email
-        const previousVendorReplies = await prisma.reply.findMany({
-            where: {
-                ticketId: ticket.id,
-                category: emailData.vendorId ? { in: [`vendor_${emailData.vendorId}`, 'vendor'] } : { startsWith: 'vendor' }
-            },
-            orderBy: { createdAt: 'desc' },
-            take: 20
-        });
-
-        let vendorThreadHistoryHtml = '';
-        let vendorThreadHistoryText = '';
-
-        if (previousVendorReplies.length > 0 || ticket.circuitId || ticket.header) {
-            vendorThreadHistoryHtml = `
-                <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-family: Arial, sans-serif; color: #475569; font-size: 13px;">
-                    <div style="font-weight: bold; color: #334155; margin-bottom: 12px; font-size: 13px;">--- Previous Conversation ---</div>
-            `;
-            vendorThreadHistoryText = '\n\n--- Previous Conversation ---\n';
-
-            for (const prev of previousVendorReplies) {
-                const authorDisplay = prev.author || 'Vendor NOC';
-                const timeDisplay = `${prev.date || ''} ${prev.time || ''}`.trim();
-                const textBody = (prev.text || '').replace(/\n/g, '<br>');
-
-                vendorThreadHistoryHtml += `
-                    <div style="margin-bottom: 16px; padding-left: 12px; border-left: 2px solid #cbd5e1;">
-                        <div style="font-size: 12px; color: #64748b; margin-bottom: 4px;">
-                            <strong>${authorDisplay}</strong> • ${timeDisplay}
-                        </div>
-                        <div style="color: #334155; line-height: 1.5;">${textBody}</div>
-                    </div>
-                `;
-                vendorThreadHistoryText += `\n[${timeDisplay}] ${authorDisplay}:\n${prev.text || ''}\n`;
-            }
-
-            if (ticket.circuitId) {
-                vendorThreadHistoryHtml += `
-                    <div style="margin-bottom: 16px; padding-left: 12px; border-left: 2px solid #cbd5e1;">
-                        <div style="font-size: 12px; color: #64748b; margin-bottom: 4px;">
-                            <strong>Circuit Reference</strong>: ${ticket.circuitId}
-                        </div>
-                        <div style="color: #334155; line-height: 1.5;">Request: ${ticket.header}</div>
-                    </div>
-                `;
-                vendorThreadHistoryText += `\n[Circuit: ${ticket.circuitId}] Request: ${ticket.header}\n`;
-            }
-
-            vendorThreadHistoryHtml += `</div>`;
-        }
-
         const emailHtml = htmlContent
             ? `
                 <div style="font-family: Arial, sans-serif; margin-bottom: 16px;">
@@ -233,7 +182,6 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
                     <p>Regarding case number <strong>${ticket.ticketId}</strong>:</p>
                 </div>
                 ${htmlContent}
-                ${vendorThreadHistoryHtml}
               `
             : `
                 <div style="font-family: Arial, sans-serif;">
@@ -244,7 +192,6 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
                     <hr/>
                     <p style="font-size: 12px; color: #666;">${agentName}<br/>EdgeStone NOC / Partner Support</p>
                 </div>
-                ${vendorThreadHistoryHtml}
             `;
 
         const sentResult = await emailService.sendAgentReplyEmail({
@@ -255,7 +202,7 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
                 (subject.includes(`[${ticket.ticketId}`) ? subject : `Re: [${ticket.ticketId}-V] ${subject}`) : 
                 `[${ticket.ticketId}-V] Vendor Support Request: ${ticket.header}`,
             html: emailHtml,
-            text: (message || '') + vendorThreadHistoryText,
+            text: message || '',
             inReplyTo: threadMessageId, 
             references: threadMessageId,
             attachments: attachments || []

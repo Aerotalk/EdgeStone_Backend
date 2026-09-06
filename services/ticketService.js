@@ -909,55 +909,6 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
             }
         }
 
-        // CHG-015: Fetch complete previous thread history to include in outbound email
-        const previousReplies = await prisma.reply.findMany({
-            where: { ticketId: ticket.id, category: 'client' },
-            orderBy: { createdAt: 'desc' },
-            take: 25
-        });
-
-        let threadHistoryHtml = '';
-        let threadHistoryText = '';
-
-        if (previousReplies.length > 0 || ticket.header) {
-            threadHistoryHtml = `
-                <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-family: Arial, sans-serif; color: #475569; font-size: 13px;">
-                    <div style="font-weight: bold; color: #334155; margin-bottom: 12px; font-size: 13px;">--- Previous Conversation ---</div>
-            `;
-            threadHistoryText = '\n\n--- Previous Conversation ---\n';
-
-            for (const prev of previousReplies) {
-                const authorDisplay = prev.author || 'Support';
-                const timeDisplay = `${prev.date || ''} ${prev.time || ''}`.trim();
-                const textBody = (prev.text || '').replace(/\n/g, '<br>');
-
-                threadHistoryHtml += `
-                    <div style="margin-bottom: 16px; padding-left: 12px; border-left: 2px solid #cbd5e1;">
-                        <div style="font-size: 12px; color: #64748b; margin-bottom: 4px;">
-                            <strong>${authorDisplay}</strong> • ${timeDisplay}
-                        </div>
-                        <div style="color: #334155; line-height: 1.5;">${textBody}</div>
-                    </div>
-                `;
-                threadHistoryText += `\n[${timeDisplay}] ${authorDisplay}:\n${prev.text || ''}\n`;
-            }
-
-            if (ticket.header) {
-                const ticketTime = ticket.date || '';
-                threadHistoryHtml += `
-                    <div style="margin-bottom: 16px; padding-left: 12px; border-left: 2px solid #cbd5e1;">
-                        <div style="font-size: 12px; color: #64748b; margin-bottom: 4px;">
-                            <strong>${ticket.email}</strong> • ${ticketTime}
-                        </div>
-                        <div style="color: #334155; line-height: 1.5;">Original Request: ${ticket.header}</div>
-                    </div>
-                `;
-                threadHistoryText += `\n[${ticketTime}] ${ticket.email}:\nOriginal Request: ${ticket.header}\n`;
-            }
-
-            threadHistoryHtml += `</div>`;
-        }
-
         // 3. Send Email to Client via MS Graph
         // If the frontend provided a pre-composed HTML body (with formatted signature + images),
         // use it directly. Otherwise fall back to plain-text → HTML conversion.
@@ -973,8 +924,8 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
                 <p style="font-size: 12px; color: #666;">${agentName}<br/>EdgeStone Support</p>
                </div>`;
 
-        const finalEmailHtml = baseEmailHtml + threadHistoryHtml;
-        const finalEmailText = (message || '') + threadHistoryText;
+        const finalEmailHtml = baseEmailHtml;
+        const finalEmailText = message || '';
 
         const sentResult = await emailService.sendAgentReplyEmail({
             to: recipientEmails,
