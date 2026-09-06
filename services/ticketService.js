@@ -326,24 +326,6 @@ const appendVendorReplyToTicket = async (ticket, emailData, vendorId = null) => 
         attachments: emailData.attachments || []
     });
 
-    // CHG-015: Track incoming CCs on vendor reply
-    try {
-        const prisma = require('../models/index');
-        const existingCcs = Array.isArray(ticket.cc) ? ticket.cc : [];
-        const incomingCcs = Array.isArray(emailData.cc) ? emailData.cc : [];
-        if (incomingCcs.length > 0) {
-            const mergedCcs = Array.from(new Set([...existingCcs, ...incomingCcs].map(e => e.trim().toLowerCase()))).filter(Boolean);
-            if (mergedCcs.length !== existingCcs.length) {
-                await prisma.ticket.update({
-                    where: { id: ticket.id },
-                    data: { cc: { set: mergedCcs } }
-                });
-            }
-        }
-    } catch (ccErr) {
-        logger.error(`Failed to update ticket.cc in appendVendorReplyToTicket: ${ccErr.message}`);
-    }
-
     // Log activity
     const ActivityLogModel = require('../models/activityLog');
     const now = new Date();

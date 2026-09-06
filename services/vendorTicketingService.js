@@ -151,20 +151,6 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
 
         logger.info(`🎟️ [TICKET] ✅ Vendor Reply added to database for Ticket ${ticket.ticketId}`);
 
-        // CHG-015: Persist any new CC recipients to ticket.cc
-        if (cc && cc.length > 0) {
-            try {
-                const existingCcs = Array.isArray(ticket.cc) ? ticket.cc : [];
-                const mergedCcs = Array.from(new Set([...existingCcs, ...cc].map(e => e.trim().toLowerCase()))).filter(Boolean);
-                await prisma.ticket.update({
-                    where: { id: ticket.id },
-                    data: { cc: { set: mergedCcs } }
-                });
-            } catch (ccSaveErr) {
-                logger.error(`Failed to update ticket.cc in replyToVendor: ${ccSaveErr.message}`);
-            }
-        }
-
         const emailService = require('./emailService');
         
         // 3.5 Find last message ID in thread for accurate In-Reply-To
