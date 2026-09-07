@@ -36,10 +36,9 @@ dotenv.config();
 const app = express();
 
 // Middleware
-// Limit reduced to 5MB to prevent memory exhaustion and DDOS under extreme load.
-// (For large attachments, client-side streaming or explicit multipart/form-data with multer is recommended instead of huge JSON bodies).
-app.use(express.json({ limit: '5mb' }));
-app.use(express.urlencoded({ extended: true, limit: '5mb' }));
+// Limit set to 25MB to accommodate rich agent email replies with inline content and attachment metadata
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 // Apply rate limiting to all requests
 const apiLimiter = rateLimit({
@@ -96,6 +95,7 @@ app.use(morgan('combined', { stream: { write: message => logger.info(message.tri
 // Static file serving for uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
     setHeaders: (res, filePath, stat) => {
+        res.set('Access-Control-Allow-Origin', '*');
         // Force download for files in the attachments folder
         if (filePath.includes('attachments') || filePath.includes('attachments\\') || filePath.includes('attachments/')) {
             const filename = path.basename(filePath);

@@ -219,6 +219,128 @@ const findExistingTicketForReply = async (inReplyTo, references, subject, body =
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// appendAgentReplyFromOutlook
+// Appends an agent's reply email sent directly from an email client (e.g. Outlook)
+// to the ticket's conversation thread so it reflects in the system dashboard.
+// ─────────────────────────────────────────────────────────────────────────────
+const appendAgentReplyFromOutlook = async (ticket, emailData) => {
+    const { from, fromName, body, html, date, messageId, to, cc, subject, attachments } = emailData;
+    const emailSentDate = date ? new Date(date) : new Date();
+
+    logger.info(`🎟️ [TICKET] 📩 Appending Agent reply from Outlook to existing Ticket ${ticket.ticketId} from ${from}`);
+
+    let replyText = stripHtml(body || html) || '(No Content)';
+    replyText = stripQuotedReply(replyText) || replyText;
+
+    const prisma = require('../models/index');
+
+    // Duplicate check 1: by messageId
+    if (messageId) {
+        const dupMessageId = await prisma.reply.findFirst({
+            where: { ticketId: ticket.id, messageId }
+        });
+        if (dupMessageId) {
+            logger.info(`🎟️ [TICKET] Reply already recorded in Ticket ${ticket.ticketId} by messageId: ${messageId}`);
+            return dupMessageId;
+        }
+    }
+
+    // Duplicate check 2: by text match against existing replies
+    const existingReplies = await prisma.reply.findMany({
+        where: { ticketId: ticket.id }
+    });
+    const dupText = existingReplies.find(r => {
+        const cleanRText = r.text.trim();
+        return cleanRText && cleanRText.length > 5 && replyText.includes(cleanRText);
+    });
+    if (dupText) {
+        logger.info(`🎟️ [TICKET] Reply content already exists in Ticket ${ticket.ticketId}. Linking messageId.`);
+        if (!dupText.messageId && messageId) {
+            await prisma.reply.update({
+                where: { id: dupText.id },
+                data: { messageId }
+            });
+        }
+        return dupText;
+    }
+
+    // Determine category: Vendor thread or Client thread
+    let category = 'client';
+    const isVendorTag = subject && /\[#?V?\d+-V\]/i.test(subject);
+    if (isVendorTag) {
+        category = ticket.vendorId ? `vendor_${ticket.vendorId}` : 'vendor';
+    } else if (ticket.ticketType === 'Vendor') {
+        category = ticket.vendorId ? `vendor_${ticket.vendorId}` : 'vendor';
+    } else {
+        // Check if recipients contain vendor emails
+        try {
+            const VendorModel = require('../models/vendor');
+            const vendors = await VendorModel.findAllVendors();
+            const toRecips = Array.isArray(to) ? to : (to ? [to] : []);
+            const matchedVendor = vendors.find(v => v.emails.some(e => toRecips.some(r => r.toLowerCase().trim() === e.toLowerCase().trim())));
+            if (matchedVendor) {
+                category = `vendor_${matchedVendor.id}`;
+            }
+        } catch (e) {
+            logger.error(`Error checking vendor recipients: ${e.message}`);
+        }
+    }
+
+    const reply = await TicketModel.addReply(ticket.id, {
+        text: replyText,
+        time: emailSentDate.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+            timeZone: 'Asia/Kolkata'
+        }),
+        date: emailSentDate.toLocaleDateString('en-GB', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+            timeZone: 'Asia/Kolkata'
+        }),
+        author: fromName || 'EdgeStone Support',
+        type: 'agent',
+        category: category,
+        to: Array.isArray(to) ? to : (to ? [to] : []),
+        cc: Array.isArray(cc) ? cc : (cc ? [cc] : []),
+        subject: subject || null,
+        messageId: messageId || null,
+        attachments: attachments || []
+    });
+
+    // Log activity
+    const ActivityLogModel = require('../models/activityLog');
+    const now = new Date();
+    await ActivityLogModel.createActivityLog({
+        ticketId: ticket.id,
+        action: 'replied',
+        description: `${fromName || 'Agent'} replied to the ticket via Outlook email`,
+        time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' }),
+        date: now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }),
+        author: fromName || from
+    });
+
+    logger.info(`🎟️ [TICKET] ✅ Agent Outlook reply appended to Ticket ${ticket.ticketId}`);
+
+    try {
+        const notificationService = require('./notificationService');
+        await notificationService.sendNotification({
+            type: 'agent_reply',
+            title: 'Ticket Update (Outlook Reply)',
+            message: `${fromName || 'Agent'} replied to Ticket ${ticket.ticketId} via Outlook`,
+            ticketId: ticket.ticketId,
+            sender: 'agent'
+        });
+    } catch(err) {
+        logger.error(`Notification Error: ${err.message}`);
+    }
+
+    return reply;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // appendClientReplyToTicket
 // Appends a client's reply email to an existing ticket's conversation thread.
 // Does NOT send another auto-reply (client already has the ticket open).
@@ -974,6 +1096,7 @@ const createTicketFromEmail = async (emailData) => {
                         category: (ticketType === 'Vendor' && vendorId) ? `vendor_${vendorId}` : ticketType.toLowerCase(),
                         to: initialToList,
                         cc: emailData.cc || [],
+                        attachments: emailData.attachments || []
                     }
                 },
                 activityLogs: {
@@ -1524,5 +1647,9 @@ module.exports = {
     sendManualAutoReply,
     appendClientReplyToTicket,
     appendVendorReplyToTicket,
+    appendAgentReplyFromOutlook,
+    findExistingTicketForReply,
+    stripHtml,
+    stripQuotedReply,
     deleteTicket
 };

@@ -48,10 +48,14 @@ const getGraphAccessToken = async () => {
     return graphAccessToken;
 };
 
+const MAX_EMAIL_ATTACHMENT_SIZE = 25 * 1024 * 1024; // 25MB limit per attachment
+
 const sendViaGraph = async (options) => {
     let { to, cc, bcc, subject, text, body, html, inReplyTo, references, extraHeaders = {} } = options;
     const accessToken = await getGraphAccessToken();
     const userEmail = process.env.SENDER_EMAIL || process.env.MAIL_USER;
+    const fs = require('fs');
+    const path = require('path');
     
     // Parse HTML for base64 inline images and convert them to cid attachments
     if (html) {
@@ -89,35 +93,41 @@ const sendViaGraph = async (options) => {
         toRecipients: formatRecipients(to)
     };
 
+    let processedAttachments = [];
+    let totalAttachmentBytes = 0;
+
     if (options.attachments && options.attachments.length > 0) {
-        message.hasAttachments = true;
-        const fs = require('fs');
-        const path = require('path');
-        message.attachments = options.attachments.map(att => {
-            let contentBytes = att.content || att.contentBytes;
-            
-            if (!contentBytes && att.filename) {
+        for (const att of options.attachments) {
+            let buffer = null;
+            if (att.content) {
+                buffer = Buffer.isBuffer(att.content) ? att.content : Buffer.from(att.content, typeof att.content === 'string' ? 'base64' : undefined);
+            } else if (att.contentBytes) {
+                buffer = Buffer.from(att.contentBytes, 'base64');
+            } else if (att.filename) {
                 try {
                     const filePath = path.join(__dirname, '../uploads/attachments', att.filename);
                     if (fs.existsSync(filePath)) {
-                        contentBytes = fs.readFileSync(filePath).toString('base64');
+                        buffer = fs.readFileSync(filePath);
                     }
                 } catch (err) {
-                    console.error(`Failed to read attachment file: ${err.message}`);
+                    logger.error(`Failed to read attachment file for sending: ${err.message}`);
                 }
             }
 
-            const attachment = {
-                '@odata.type': '#microsoft.graph.fileAttachment',
-                name: att.originalName || att.filename || att.name || 'attachment',
-                contentBytes: contentBytes || ''
-            };
-            if (att.isInline) {
-                attachment.isInline = true;
-                attachment.contentId = att.contentId;
+            if (buffer) {
+                if (buffer.length > MAX_EMAIL_ATTACHMENT_SIZE) {
+                    throw new Error(`Attachment "${att.originalName || att.filename || att.name}" exceeds the maximum email attachment limit of 25MB.`);
+                }
+                totalAttachmentBytes += buffer.length;
+                processedAttachments.push({
+                    name: att.originalName || att.filename || att.name || 'attachment',
+                    contentType: att.mimeType || 'application/octet-stream',
+                    buffer: buffer,
+                    isInline: !!att.isInline,
+                    contentId: att.contentId
+                });
             }
-            return attachment;
-        });
+        }
     }
 
     if (cc) {
@@ -130,17 +140,14 @@ const sendViaGraph = async (options) => {
     }
 
     const headers = [];
-    
     const addHeader = (name, value) => {
         if (name.toLowerCase().startsWith('x-')) {
             headers.push({ name, value });
         }
     };
-
     Object.keys(extraHeaders).forEach(key => {
         addHeader(key, extraHeaders[key]);
     });
-
     if (headers.length > 0) {
         message.internetMessageHeaders = headers;
     }
@@ -157,8 +164,140 @@ const sendViaGraph = async (options) => {
         message.singleValueExtendedProperties = extendedProps;
     }
 
+    const toEmails = Array.isArray(to) ? to.join(', ') : to;
+
+    // Microsoft Graph /sendMail endpoint has a hard 4MB request payload limit.
+    // If total attachments > 3MB, we must create a draft message and upload attachments (using uploadSession for large files).
+    const isLargePayload = totalAttachmentBytes > (3 * 1024 * 1024);
+
+    if (isLargePayload) {
+        logger.info(`[EMAIL] Total attachment size is ${(totalAttachmentBytes / (1024*1024)).toFixed(2)} MB. Using Graph Draft + Upload Session workflow.`);
+        
+        // 1. Create Draft Message
+        const draftUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/messages`;
+        const draftRes = await fetch(draftUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(message)
+        });
+
+        if (!draftRes.ok) {
+            const draftErr = await draftRes.json().catch(() => ({}));
+            throw new Error(`Failed to create draft for large email: ${draftErr.error?.message || draftRes.status}`);
+        }
+
+        const draftData = await draftRes.json();
+        const draftId = draftData.id;
+
+        // 2. Attach each file to the draft
+        for (const att of processedAttachments) {
+            if (att.buffer.length <= (3 * 1024 * 1024)) {
+                // Attach directly via regular attachment endpoint
+                const addAttachUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/messages/${draftId}/attachments`;
+                const attachPayload = {
+                    '@odata.type': '#microsoft.graph.fileAttachment',
+                    name: att.name,
+                    contentType: att.contentType,
+                    contentBytes: att.buffer.toString('base64'),
+                    isInline: att.isInline,
+                    contentId: att.contentId
+                };
+                const addRes = await fetch(addAttachUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(attachPayload)
+                });
+                if (!addRes.ok) {
+                    logger.error(`Failed to attach ${att.name} directly to draft ${draftId}`);
+                }
+            } else {
+                // Create an upload session for large files > 3MB
+                logger.info(`[EMAIL] Creating upload session for large attachment: ${att.name} (${(att.buffer.length / (1024*1024)).toFixed(2)} MB)`);
+                const sessionUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/messages/${draftId}/attachments/createUploadSession`;
+                const sessionRes = await fetch(sessionUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        AttachmentItem: {
+                            attachmentType: 'file',
+                            name: att.name,
+                            size: att.buffer.length,
+                            contentType: att.contentType
+                        }
+                    })
+                });
+
+                if (!sessionRes.ok) {
+                    const sessErr = await sessionRes.json().catch(() => ({}));
+                    throw new Error(`Failed to create upload session for ${att.name}: ${sessErr.error?.message || sessionRes.status}`);
+                }
+
+                const { uploadUrl } = await sessionRes.json();
+                
+                // Upload in chunks of 3,276,800 bytes (multiple of 320 KiB required by MS Graph)
+                const chunkSize = 320 * 1024 * 10;
+                let offset = 0;
+                while (offset < att.buffer.length) {
+                    const chunkEnd = Math.min(offset + chunkSize, att.buffer.length);
+                    const chunk = att.buffer.slice(offset, chunkEnd);
+                    
+                    const chunkRes = await fetch(uploadUrl, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Length': chunk.length.toString(),
+                            'Content-Range': `bytes ${offset}-${chunkEnd - 1}/${att.buffer.length}`
+                        },
+                        body: chunk
+                    });
+
+                    if (!chunkRes.ok && chunkRes.status !== 200 && chunkRes.status !== 201 && chunkRes.status !== 202) {
+                        throw new Error(`Failed to upload chunk for ${att.name} at offset ${offset}`);
+                    }
+
+                    offset = chunkEnd;
+                }
+                logger.info(`[EMAIL] Large attachment ${att.name} uploaded successfully to draft.`);
+            }
+        }
+
+        // 3. Send the draft
+        const sendDraftUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/messages/${draftId}/send`;
+        const sendRes = await fetch(sendDraftUrl, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+
+        if (sendRes.ok || sendRes.status === 202) {
+            logger.info(`[EMAIL] Sent large email via Graph draft to ${toEmails}`);
+            return { messageId: null, accepted: Array.isArray(to) ? to : [to], response: '202 Accepted' };
+        }
+
+        const sendErr = await sendRes.json().catch(() => ({}));
+        throw new Error(`Draft send failed: ${sendErr.error?.message || sendRes.status}`);
+    }
+
+    // Standard fast path for payloads <= 3MB
+    if (processedAttachments.length > 0) {
+        message.hasAttachments = true;
+        message.attachments = processedAttachments.map(att => ({
+            '@odata.type': '#microsoft.graph.fileAttachment',
+            name: att.name,
+            contentBytes: att.buffer.toString('base64'),
+            isInline: att.isInline,
+            contentId: att.contentId
+        }));
+    }
+
     const headersUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/sendMail`;
-    
     const response = await fetch(headersUrl, {
         method: 'POST',
         headers: {
@@ -167,8 +306,6 @@ const sendViaGraph = async (options) => {
         },
         body: JSON.stringify({ message, saveToSentItems: true })
     });
-
-    const toEmails = Array.isArray(to) ? to.join(', ') : to;
 
     if (response.ok || response.status === 202) {
         logger.info(`[EMAIL] Sent email via Graph to ${toEmails}`);
@@ -199,6 +336,183 @@ const markEmailAsRead = async (messageId, accessToken) => {
     });
 };
 
+const fetchMessageAttachments = async (msgId, hasAttachments, accessToken, userEmail) => {
+    if (!hasAttachments) return [];
+    const attachments = [];
+    try {
+        const attachUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/messages/${msgId}/attachments`;
+        const attachRes = await fetch(attachUrl, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+        if (attachRes.ok) {
+            const attachResult = await attachRes.json();
+            const fs = require('fs');
+            const path = require('path');
+            
+            const attachmentsDir = path.join(__dirname, '../uploads/attachments');
+            if (!fs.existsSync(attachmentsDir)) {
+                fs.mkdirSync(attachmentsDir, { recursive: true });
+            }
+
+            for (const attachment of attachResult.value || []) {
+                // Only process file attachments
+                if (attachment['@odata.type'] !== '#microsoft.graph.fileAttachment') {
+                    continue;
+                }
+
+                // Filter out tiny 0-byte or 1px tracking pixels, but retain screenshots and attached images
+                const isMeaningful = !attachment.isInline || (attachment.size && attachment.size > 1024) || (attachment.name && !attachment.name.startsWith('image00'));
+                if (!isMeaningful) {
+                    continue;
+                }
+
+                // Enforce 25MB size limit
+                if (attachment.size && attachment.size > MAX_EMAIL_ATTACHMENT_SIZE) {
+                    logger.warn(`[EMAIL] ⚠️ Attachment "${attachment.name}" on message ${msgId} exceeds 25MB limit (${(attachment.size / (1024*1024)).toFixed(1)}MB). Skipped.`);
+                    attachments.push({
+                        originalName: attachment.name || 'Large Attachment',
+                        size: attachment.size,
+                        error: 'File exceeds 25MB limit',
+                        exceededLimit: true
+                    });
+                    continue;
+                }
+
+                let fileBuffer = null;
+
+                // 1. If contentBytes is present directly (for files <= 3MB)
+                if (attachment.contentBytes) {
+                    fileBuffer = Buffer.from(attachment.contentBytes, 'base64');
+                } else if (attachment.id) {
+                    // 2. For large files (> 3MB), Microsoft Graph omits contentBytes.
+                    // We fetch the raw binary stream directly from the /$value endpoint:
+                    try {
+                        const rawAttachUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/messages/${msgId}/attachments/${attachment.id}/$value`;
+                        const rawRes = await fetch(rawAttachUrl, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+                        if (rawRes.ok) {
+                            const arrayBuffer = await rawRes.arrayBuffer();
+                            fileBuffer = Buffer.from(arrayBuffer);
+                            logger.info(`[EMAIL] 📥 Retrieved large attachment "${attachment.name}" (${(fileBuffer.length / (1024*1024)).toFixed(2)} MB) via $value stream`);
+                        } else {
+                            logger.error(`[EMAIL] ❌ Failed to fetch raw attachment content for ${attachment.id}: status ${rawRes.status}`);
+                        }
+                    } catch (fetchRawErr) {
+                        logger.error(`[EMAIL] ❌ Error fetching raw attachment stream for ${attachment.id}: ${fetchRawErr.message}`);
+                    }
+                }
+
+                if (fileBuffer) {
+                    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+                    const safeName = attachment.name ? attachment.name.replace(/[^a-zA-Z0-9.-]/g, '_') : 'attachment';
+                    const fileName = `email-${uniqueSuffix}-${safeName}`;
+                    const filePath = path.join(attachmentsDir, fileName);
+                    
+                    fs.writeFileSync(filePath, fileBuffer);
+                    
+                    const baseUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+                    const publicUrl = `${baseUrl}/uploads/attachments/${fileName}`;
+                    const downloadUrl = `${baseUrl}/api/upload/attachments/${fileName}/download?name=${encodeURIComponent(attachment.name || safeName)}`;
+                    
+                    attachments.push({
+                        url: publicUrl,
+                        downloadUrl: downloadUrl,
+                        originalName: attachment.name || fileName,
+                        filename: fileName,
+                        mimeType: attachment.contentType,
+                        size: fileBuffer.length || attachment.size
+                    });
+                }
+            }
+        }
+    } catch (attachErr) {
+        logger.error(`[EMAIL] Failed to fetch/save attachments for message ${msgId}: ${attachErr.message}`);
+    }
+    return attachments;
+};
+
+const syncSentItemsEmails = async (accessToken, userEmail) => {
+    try {
+        const sentUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/mailFolders/sentitems/messages?$top=15&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,body,sentDateTime,internetMessageHeaders,hasAttachments&$orderby=sentDateTime desc`;
+        const sentRes = await fetch(sentUrl, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+        if (!sentRes.ok) return;
+
+        const sentData = await sentRes.json();
+        const messages = sentData.value || [];
+
+        for (const msg of messages) {
+            const messageId = msg.internetMessageId || msg.id;
+            if (processedGraphIds.has(msg.id) || (msg.internetMessageId && processedGraphIds.has(msg.internetMessageId))) {
+                continue;
+            }
+
+            const subject = msg.subject || '';
+            const subjectLower = subject.toLowerCase();
+
+            // Ignore system automated notifications (e.g. ticket creation acknowledgment)
+            if (subjectLower.startsWith('ticket received:') || subjectLower.startsWith('ticket created:') || subjectLower.startsWith('new ticket assigned:')) {
+                processedGraphIds.add(msg.id);
+                if (msg.internetMessageId) processedGraphIds.add(msg.internetMessageId);
+                continue;
+            }
+
+            const inReplyToHeader = msg.internetMessageHeaders?.find(h => h.name?.toLowerCase() === 'in-reply-to')?.value || null;
+            const referencesHeader = msg.internetMessageHeaders?.find(h => h.name?.toLowerCase() === 'references')?.value || null;
+
+            // Check if this sent message matches an existing ticket
+            const existingTicket = await ticketService.findExistingTicketForReply(inReplyToHeader, referencesHeader, subject, msg.body?.content);
+            if (!existingTicket) {
+                processedGraphIds.add(msg.id);
+                if (msg.internetMessageId) processedGraphIds.add(msg.internetMessageId);
+                continue;
+            }
+
+            // Extract text to see if it was already created from the EdgeStone portal
+            const cleanText = ticketService.stripQuotedReply(ticketService.stripHtml(msg.body?.content || '')) || '';
+            const prisma = require('../models/index');
+            const existingReplies = await prisma.reply.findMany({
+                where: { ticketId: existingTicket.id }
+            });
+
+            const alreadyRecorded = existingReplies.some(r => {
+                if (r.messageId && msg.internetMessageId && r.messageId === msg.internetMessageId) return true;
+                const cleanR = (r.text || '').trim();
+                return cleanR.length > 5 && cleanText.includes(cleanR);
+            });
+
+            if (alreadyRecorded) {
+                processedGraphIds.add(msg.id);
+                if (msg.internetMessageId) processedGraphIds.add(msg.internetMessageId);
+                continue;
+            }
+
+            // This is a new outgoing agent reply sent directly from Outlook!
+            logger.info(`[EMAIL] 📤 Found new Agent reply from Outlook in Sent Items for Ticket ${existingTicket.ticketId}`);
+            
+            const attachments = await fetchMessageAttachments(msg.id, msg.hasAttachments, accessToken, userEmail);
+            const toRecips = msg.toRecipients ? msg.toRecipients.map(r => r.emailAddress?.address).filter(Boolean) : [];
+            const ccRecips = msg.ccRecipients ? msg.ccRecipients.map(r => r.emailAddress?.address).filter(Boolean) : [];
+            const fromAddr = msg.from?.emailAddress?.address || userEmail;
+            const fromName = msg.from?.emailAddress?.name || fromAddr;
+
+            await ticketService.appendAgentReplyFromOutlook(existingTicket, {
+                from: fromAddr,
+                fromName: fromName,
+                to: toRecips,
+                cc: ccRecips,
+                subject: subject,
+                body: msg.body?.content || '',
+                html: msg.body?.contentType === 'html' ? msg.body?.content : null,
+                date: msg.sentDateTime ? new Date(msg.sentDateTime) : new Date(),
+                messageId: messageId,
+                attachments
+            });
+
+            processedGraphIds.add(msg.id);
+            if (msg.internetMessageId) processedGraphIds.add(msg.internetMessageId);
+        }
+    } catch (sentErr) {
+        logger.error(`[EMAIL] Sent Items Sync Error: ${sentErr.message}`);
+    }
+};
+
 const fetchNewGraphEmails = async () => {
     if (isPolling) return;
     isPolling = true;
@@ -209,107 +523,93 @@ const fetchNewGraphEmails = async () => {
         const messagesUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/mailFolders/inbox/messages?$filter=isRead eq false&$top=20&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,body,receivedDateTime,internetMessageHeaders,hasAttachments`;
 
         const response = await fetch(messagesUrl, { headers: { 'Authorization': `Bearer ${accessToken}` } });
-        if (!response.ok) return;
+        if (response.ok) {
+            const result = await response.json();
+            const messages = result.value || [];
+            const ownEmail = (process.env.SENDER_EMAIL || process.env.MAIL_USER || '').toLowerCase();
 
-        const result = await response.json();
-        const messages = result.value || [];
-        if (messages.length === 0) return;
+            for (const msg of messages) {
+                const messageId = msg.internetMessageId || msg.id;
+                const fromAddr = msg.from?.emailAddress?.address;
+                const fromName = msg.from?.emailAddress?.name || fromAddr;
 
-        const ownEmail = (process.env.SENDER_EMAIL || process.env.MAIL_USER || '').toLowerCase();
-
-        for (const msg of messages) {
-            const messageId = msg.internetMessageId || msg.id;
-            const fromAddr = msg.from?.emailAddress?.address;
-            const fromName = msg.from?.emailAddress?.name || fromAddr;
-
-            if (!fromAddr) {
-                await markEmailAsRead(msg.id, accessToken);
-                continue;
-            }
-
-            const subjectLower = (msg.subject || '').toLowerCase();
-            const isOwnEmail = ownEmail && fromAddr.toLowerCase() === ownEmail;
-            const isSystemBounce = fromAddr.toLowerCase().includes('postmaster') || fromAddr.toLowerCase().includes('mailer-daemon');
-            
-            if (isOwnEmail || isSystemBounce) {
-                await markEmailAsRead(msg.id, accessToken);
-                continue;
-            }
-
-            const inReplyToHeader = msg.internetMessageHeaders?.find(h => h.name?.toLowerCase() === 'in-reply-to')?.value || null;
-            const referencesHeader = msg.internetMessageHeaders?.find(h => h.name?.toLowerCase() === 'references')?.value || null;
-
-            const toRecips = msg.toRecipients ? msg.toRecipients.map(r => r.emailAddress?.address).filter(Boolean) : [];
-            const ccRecips = msg.ccRecipients ? msg.ccRecipients.map(r => r.emailAddress?.address).filter(Boolean) : [];
-
-            const emailData = {
-                from: fromAddr,
-                fromName: fromName,
-                to: toRecips,
-                cc: ccRecips,
-                subject: msg.subject || '(No Subject)',
-                body: msg.body?.content || '',
-                html: msg.body?.contentType === 'html' ? msg.body?.content : null,
-                date: msg.receivedDateTime ? new Date(msg.receivedDateTime) : new Date(),
-                messageId: messageId,
-                inReplyTo: inReplyToHeader,
-                references: referencesHeader,
-                attachments: []
-            };
-
-            if (msg.hasAttachments) {
-                try {
-                    const attachUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/messages/${msg.id}/attachments`;
-                    const attachRes = await fetch(attachUrl, { headers: { 'Authorization': `Bearer ${accessToken}` } });
-                    if (attachRes.ok) {
-                        const attachResult = await attachRes.json();
-                        const fs = require('fs');
-                        const path = require('path');
-                        
-                        const attachmentsDir = path.join(__dirname, '../uploads/attachments');
-                        if (!fs.existsSync(attachmentsDir)) {
-                            fs.mkdirSync(attachmentsDir, { recursive: true });
-                        }
-
-                        for (const attachment of attachResult.value || []) {
-                            if (attachment['@odata.type'] === '#microsoft.graph.fileAttachment' && attachment.contentBytes && !attachment.isInline) {
-                                const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-                                const safeName = attachment.name ? attachment.name.replace(/[^a-zA-Z0-9.-]/g, '_') : 'attachment';
-                                const fileName = `email-${uniqueSuffix}-${safeName}`;
-                                const filePath = path.join(attachmentsDir, fileName);
-                                
-                                fs.writeFileSync(filePath, Buffer.from(attachment.contentBytes, 'base64'));
-                                
-                                // Since we may not know the exact public protocol/host here without req object, 
-                                // we construct it using BACKEND_URL or a relative URL that frontend resolves.
-                                // Using BACKEND_URL from env if available, otherwise fallback.
-                                const baseUrl = process.env.BACKEND_URL || 'http://localhost:5000';
-                                const publicUrl = `${baseUrl}/uploads/attachments/${fileName}`;
-                                
-                                emailData.attachments.push({
-                                    url: publicUrl,
-                                    originalName: attachment.name || fileName,
-                                    filename: fileName,
-                                    mimeType: attachment.contentType,
-                                    size: attachment.size
-                                });
-                            }
-                        }
-                    }
-                } catch (attachErr) {
-                    logger.error(`[EMAIL] Failed to fetch/save attachments for message ${msg.id}: ${attachErr.message}`);
+                if (!fromAddr) {
+                    await markEmailAsRead(msg.id, accessToken);
+                    continue;
                 }
-            }
 
-            if (processedGraphIds.has(msg.id)) {
+                const isOwnEmail = ownEmail && fromAddr.toLowerCase() === ownEmail;
+                const isSystemBounce = fromAddr.toLowerCase().includes('postmaster') || fromAddr.toLowerCase().includes('mailer-daemon');
+                
+                if (isSystemBounce) {
+                    await markEmailAsRead(msg.id, accessToken);
+                    continue;
+                }
+
+                const inReplyToHeader = msg.internetMessageHeaders?.find(h => h.name?.toLowerCase() === 'in-reply-to')?.value || null;
+                const referencesHeader = msg.internetMessageHeaders?.find(h => h.name?.toLowerCase() === 'references')?.value || null;
+
+                // If ownEmail sends a message into Inbox (e.g. self-CC or loopback):
+                if (isOwnEmail) {
+                    const existingTicket = await ticketService.findExistingTicketForReply(inReplyToHeader, referencesHeader, msg.subject, msg.body?.content);
+                    if (existingTicket && !processedGraphIds.has(msg.id)) {
+                        processedGraphIds.add(msg.id);
+                        if (msg.internetMessageId) processedGraphIds.add(msg.internetMessageId);
+                        const attachments = await fetchMessageAttachments(msg.id, msg.hasAttachments, accessToken, userEmail);
+                        const toRecips = msg.toRecipients ? msg.toRecipients.map(r => r.emailAddress?.address).filter(Boolean) : [];
+                        const ccRecips = msg.ccRecipients ? msg.ccRecipients.map(r => r.emailAddress?.address).filter(Boolean) : [];
+                        await ticketService.appendAgentReplyFromOutlook(existingTicket, {
+                            from: fromAddr,
+                            fromName: fromName,
+                            to: toRecips,
+                            cc: ccRecips,
+                            subject: msg.subject || '(No Subject)',
+                            body: msg.body?.content || '',
+                            html: msg.body?.contentType === 'html' ? msg.body?.content : null,
+                            date: msg.receivedDateTime ? new Date(msg.receivedDateTime) : new Date(),
+                            messageId: messageId,
+                            attachments
+                        });
+                    }
+                    await markEmailAsRead(msg.id, accessToken);
+                    continue;
+                }
+
+                const toRecips = msg.toRecipients ? msg.toRecipients.map(r => r.emailAddress?.address).filter(Boolean) : [];
+                const ccRecips = msg.ccRecipients ? msg.ccRecipients.map(r => r.emailAddress?.address).filter(Boolean) : [];
+
+                const emailData = {
+                    from: fromAddr,
+                    fromName: fromName,
+                    to: toRecips,
+                    cc: ccRecips,
+                    subject: msg.subject || '(No Subject)',
+                    body: msg.body?.content || '',
+                    html: msg.body?.contentType === 'html' ? msg.body?.content : null,
+                    date: msg.receivedDateTime ? new Date(msg.receivedDateTime) : new Date(),
+                    messageId: messageId,
+                    inReplyTo: inReplyToHeader,
+                    references: referencesHeader,
+                    attachments: []
+                };
+
+                emailData.attachments = await fetchMessageAttachments(msg.id, msg.hasAttachments, accessToken, userEmail);
+
+                if (processedGraphIds.has(msg.id)) {
+                    await markEmailAsRead(msg.id, accessToken);
+                    continue;
+                }
+
+                processedGraphIds.add(msg.id);
+                if (msg.internetMessageId) processedGraphIds.add(msg.internetMessageId);
+                await ticketService.createTicketFromEmail(emailData);
                 await markEmailAsRead(msg.id, accessToken);
-                continue;
             }
-
-            processedGraphIds.add(msg.id);
-            await ticketService.createTicketFromEmail(emailData);
-            await markEmailAsRead(msg.id, accessToken);
         }
+
+        // Also check Sent Items for replies sent directly from Outlook / external mail clients
+        await syncSentItemsEmails(accessToken, userEmail);
+
     } catch (err) {
         logger.error(`[EMAIL] Fetch Error: ${err.message}`);
     } finally {
@@ -318,11 +618,18 @@ const fetchNewGraphEmails = async () => {
 };
 
 const startImapListener = () => {
-    logger.info('[EMAIL] Starting Graph API Poller...');
+    logger.info('[EMAIL] Starting Graph API Poller (Inbox & Sent Items)...');
     fetchNewGraphEmails();
     if (!graphPollInterval) {
         graphPollInterval = setInterval(fetchNewGraphEmails, 5000);
     }
 };
 
-module.exports = { sendEmail, sendAgentReplyEmail, startImapListener };
+module.exports = {
+    sendEmail,
+    sendAgentReplyEmail,
+    startImapListener,
+    fetchNewGraphEmails,
+    syncSentItemsEmails,
+    fetchMessageAttachments
+};
