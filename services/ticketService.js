@@ -286,12 +286,27 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
     logger.info(`🎟️ [TICKET] ✅ Client reply appended to Ticket ${ticket.ticketId}`);
     try {
         const notificationService = require('./notificationService');
-        const senderLabel = ticket.ticketType === 'Vendor' ? 'Vendor' : 'Customer';
-        let message = `${senderLabel} (${fromName || from}) replied to Ticket ${ticket.ticketId}`;
-        if (ticket.status.toLowerCase() === 'closed') {
-            message = `${senderLabel} (${fromName || from}) replied to Ticket ${ticket.ticketId} which is closed, please re-open it to continue conversation`;
+        const isClosed = ticket.status && ticket.status.toLowerCase() === 'closed';
+        const senderLabel = ticket.ticketType === 'Vendor' ? 'Vendor' : 'Client';
+        const senderName = fromName || from;
+
+        if (isClosed) {
+            await notificationService.sendNotification({
+                type: 'closed_ticket_reply',
+                title: `Closed Ticket Reply (${senderLabel})`,
+                message: `${senderLabel} (${senderName}) replied to closed Ticket ${ticket.ticketId}. Please review and reopen if needed.`,
+                ticketId: ticket.ticketId,
+                sender: 'client'
+            });
+        } else {
+            await notificationService.sendNotification({
+                type: 'client_reply',
+                title: 'Ticket Update',
+                message: `${senderLabel} (${senderName}) replied to Ticket ${ticket.ticketId}`,
+                ticketId: ticket.ticketId,
+                sender: 'client'
+            });
         }
-        notificationService.sendNotification({ type: 'client_reply', message, ticketId: ticket.ticketId });
     } catch(err) { logger.error(`Notification Error: ${err.message}`) }
     return reply;
 };
@@ -341,7 +356,26 @@ const appendVendorReplyToTicket = async (ticket, emailData, vendorId = null) => 
     logger.info(`🎟️ [TICKET] ✅ Vendor reply appended to Ticket ${ticket.ticketId}`);
     try {
         const notificationService = require('./notificationService');
-        notificationService.sendNotification({ type: 'vendor_reply', message: `Vendor (${fromName || from}) replied to Ticket ${ticket.ticketId}`, ticketId: ticket.ticketId });
+        const isClosed = ticket.status && ticket.status.toLowerCase() === 'closed';
+        const senderName = fromName || from;
+
+        if (isClosed) {
+            await notificationService.sendNotification({
+                type: 'closed_ticket_reply',
+                title: 'Closed Ticket Reply (Vendor)',
+                message: `Vendor (${senderName}) replied to closed Ticket ${ticket.ticketId}. Please review and reopen if needed.`,
+                ticketId: ticket.ticketId,
+                sender: 'vendor'
+            });
+        } else {
+            await notificationService.sendNotification({
+                type: 'vendor_reply',
+                title: 'Ticket Update',
+                message: `Vendor (${senderName}) replied to Ticket ${ticket.ticketId}`,
+                ticketId: ticket.ticketId,
+                sender: 'vendor'
+            });
+        }
     } catch(err) { logger.error(`Notification Error: ${err.message}`) }
 
     // --- AUTOMATIC SLA START ON FIRST VENDOR REPLY ---
@@ -1181,5 +1215,7 @@ module.exports = {
     getTickets,
     updateTicket,
     replyToTicket,
-    sendManualAutoReply
+    sendManualAutoReply,
+    appendClientReplyToTicket,
+    appendVendorReplyToTicket
 };

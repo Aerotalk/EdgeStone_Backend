@@ -36,18 +36,24 @@ const sendNotification = async (data) => {
         const prisma = require('../utils/prisma');
         
         
+        const notificationTitle = data.title || (
+            data.type === 'new_ticket' ? 'New Ticket' :
+            data.type === 'closed_ticket_reply' ? 'Closed Ticket Reply' : 'Ticket Update'
+        );
+
         // Save to DB
         const savedNotif = await prisma.notification.create({
             data: {
-                title: data.type === 'new_ticket' ? 'New Ticket' : 'Ticket Update',
+                title: notificationTitle,
                 message: data.message || '',
                 type: data.type || 'info',
                 ticketId: data.ticketId || null
             }
         });
         
-        // Attach ID so frontend can mark read
+        // Attach ID and title so frontend can display and mark read
         data.id = savedNotif.id;
+        data.title = notificationTitle;
         
     } catch (err) {
         logger.error(`🚨 [NOTIFICATIONS] Failed to save to DB: ${err.message}`);
