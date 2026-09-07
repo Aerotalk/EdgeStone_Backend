@@ -99,9 +99,62 @@ const updateVendor = async (req, res, next) => {
     }
 };
 
+// @desc    Delete vendor
+// @route   DELETE /api/vendors/:id
+// @access  Private (Super Admin, Agent)
+const deleteVendor = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const prisma = require('../models/index');
+        logger.debug(`🐞 🏭 [VENDOR] 🗑️ Deleting vendor: ${id}`);
+
+        const vendor = await VendorModel.findVendorById(id);
+        if (!vendor) {
+            logger.warn(`⚠️ 🏭 [VENDOR] ⚠️ Vendor not found for deletion: ${id}`);
+            return res.status(404).json({ success: false, message: 'Vendor not found' });
+        }
+
+        // 1. Unlink tickets referencing this vendor
+        await prisma.ticket.updateMany({
+            where: { vendorId: id },
+            data: { vendorId: null }
+        });
+
+        // 2. Unlink circuits referencing this vendor
+        await prisma.circuit.updateMany({
+            where: { vendorId: id },
+            data: { vendorId: null }
+        });
+
+        // 3. Delete vendorCircuits referencing this vendor
+        await prisma.vendorCircuit.deleteMany({
+            where: { vendorId: id }
+        });
+
+        // 4. Delete vendor SLAs
+        const slas = await prisma.sla.findMany({ where: { vendorId: id }, select: { id: true } });
+        const slaIds = slas.map(s => s.id);
+        if (slaIds.length > 0) {
+            await prisma.slaRule.deleteMany({ where: { slaId: { in: slaIds } } });
+            await prisma.slaAuditLog.deleteMany({ where: { slaId: { in: slaIds } } });
+            await prisma.sla.deleteMany({ where: { id: { in: slaIds } } });
+        }
+
+        // 5. Delete the vendor
+        await prisma.vendor.delete({ where: { id } });
+
+        logger.info(`🏭 [VENDOR] ✅ Vendor deleted successfully: ${vendor.name} (ID: ${id})`);
+        res.status(200).json({ success: true, message: `Vendor ${vendor.name} deleted successfully` });
+    } catch (error) {
+        logger.error(`🚨 🏭 [VENDOR] ❌ Error deleting vendor ${req.params.id}: ${error.message}`);
+        next(error);
+    }
+};
+
 module.exports = {
     getAllVendors,
     getVendorById,
     createVendor,
-    updateVendor
+    updateVendor,
+    deleteVendor
 };

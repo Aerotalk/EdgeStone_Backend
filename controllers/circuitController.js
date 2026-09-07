@@ -272,4 +272,41 @@ const updateCircuit = async (req, res, next) => {
     }
 };
 
-module.exports = { getCircuits, createCircuit, updateCircuit };
+// ── DELETE /api/circuits/:id ──────────────────────────────────────────────────
+const deleteCircuit = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        logger.debug(`🐞 🔌 [CIRCUIT] 📝 Request received: deleteCircuit for id ${id}`);
+
+        const circuit = await prisma.circuit.findUnique({ where: { id } });
+        if (!circuit) {
+            return res.status(404).json({ success: false, message: 'Circuit not found' });
+        }
+
+        // 1. Delete associated CircuitSLAValue (if any)
+        await prisma.circuitSLAValue.deleteMany({ where: { circuitId: id } });
+
+        // 2. Delete associated SLAs and their cascaded rules and audit logs
+        const slas = await prisma.sla.findMany({ where: { circuitId: id }, select: { id: true } });
+        const slaIds = slas.map(s => s.id);
+        if (slaIds.length > 0) {
+            await prisma.slaRule.deleteMany({ where: { slaId: { in: slaIds } } });
+            await prisma.slaAuditLog.deleteMany({ where: { slaId: { in: slaIds } } });
+            await prisma.sla.deleteMany({ where: { id: { in: slaIds } } });
+        }
+
+        // 3. Delete associated VendorCircuits
+        await prisma.vendorCircuit.deleteMany({ where: { circuitId: id } });
+
+        // 4. Delete the circuit itself
+        await prisma.circuit.delete({ where: { id } });
+
+        logger.info(`🔌 [CIRCUIT] ✅ Circuit deleted: ${circuit.customerCircuitId} (id: ${circuit.id})`);
+        res.status(200).json({ success: true, message: `Circuit ${circuit.customerCircuitId} deleted successfully` });
+    } catch (error) {
+        logger.error(`🚨 🔌 [CIRCUIT] ❌ Error deleting circuit: ${error.message}`, { stack: error.stack });
+        next(error);
+    }
+};
+
+module.exports = { getCircuits, createCircuit, updateCircuit, deleteCircuit };

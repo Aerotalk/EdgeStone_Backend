@@ -1210,6 +1210,54 @@ const sendManualAutoReply = async (ticketId, toEmails, agentName = 'System', age
     }
 };
 
+const deleteTicket = async (id) => {
+    try {
+        const { PrismaClient } = require('@prisma/client');
+        const prisma = new PrismaClient();
+
+        const cleanId = id.trim();
+        const formattedId = cleanId.startsWith('#') ? cleanId : `#${cleanId}`;
+
+        const ticket = await prisma.ticket.findFirst({
+            where: {
+                OR: [
+                    { id: cleanId },
+                    { ticketId: cleanId },
+                    { ticketId: formattedId }
+                ]
+            }
+        });
+
+        if (!ticket) {
+            throw new Error('Ticket not found');
+        }
+
+        const targetId = ticket.id;
+        logger.info(`🎟️ [TICKET] 🗑️ Commencing cascading deletion of Ticket ${ticket.ticketId} (UUID: ${targetId})`);
+
+        await prisma.reply.deleteMany({ where: { ticketId: targetId } });
+        await prisma.note.deleteMany({ where: { ticketId: targetId } });
+        await prisma.workNote.deleteMany({ where: { ticketId: targetId } });
+        await prisma.sLARecord.deleteMany({ where: { ticketId: targetId } });
+        await prisma.activityLog.deleteMany({ where: { ticketId: targetId } });
+        await prisma.notification.deleteMany({
+            where: {
+                OR: [
+                    { ticketId: targetId },
+                    { ticketId: ticket.ticketId }
+                ]
+            }
+        });
+
+        const deletedTicket = await prisma.ticket.delete({ where: { id: targetId } });
+        logger.info(`🎟️ [TICKET] ✅ Ticket ${ticket.ticketId} deleted successfully along with all child records`);
+        return deletedTicket;
+    } catch (error) {
+        logger.error(`🚨 🎟️ [TICKET] ❌ Error deleting ticket ${id}: ${error.message}`, { stack: error.stack });
+        throw error;
+    }
+};
+
 module.exports = {
     createTicketFromEmail,
     getTickets,
@@ -1217,5 +1265,6 @@ module.exports = {
     replyToTicket,
     sendManualAutoReply,
     appendClientReplyToTicket,
-    appendVendorReplyToTicket
+    appendVendorReplyToTicket,
+    deleteTicket
 };

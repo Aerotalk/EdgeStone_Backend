@@ -12,4 +12,7 @@ router.post('/',    protect, authorize('Manager'), circuitController.createCircu
 // Update an existing circuit
 router.put('/:id',  protect, authorize('Manager'), circuitController.updateCircuit);
 
+// Delete a circuit
+router.delete('/:id', protect, authorize('Manager', 'Support crew'), circuitController.deleteCircuit);
+
 module.exports = router;

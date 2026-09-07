@@ -99,9 +99,57 @@ const updateClient = async (req, res, next) => {
     }
 };
 
+// @desc    Delete client
+// @route   DELETE /api/clients/:id
+// @access  Private (Super Admin, Agent)
+const deleteClient = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const prisma = require('../models/index');
+        logger.debug(`🐞 🏢 [CLIENT] 🗑️ Deleting client: ${id}`);
+
+        const client = await ClientModel.findClientById(id);
+        if (!client) {
+            logger.warn(`⚠️ 🏢 [CLIENT] ⚠️ Client not found for deletion: ${id}`);
+            return res.status(404).json({ success: false, message: 'Client not found' });
+        }
+
+        // 1. Unlink tickets referencing this client
+        await prisma.ticket.updateMany({
+            where: { clientId: id },
+            data: { clientId: null }
+        });
+
+        // 2. Unlink circuits referencing this client
+        await prisma.circuit.updateMany({
+            where: { clientId: id },
+            data: { clientId: null }
+        });
+
+        // 3. Delete customer SLAs for this client
+        const slas = await prisma.sla.findMany({ where: { customerId: id }, select: { id: true } });
+        const slaIds = slas.map(s => s.id);
+        if (slaIds.length > 0) {
+            await prisma.slaRule.deleteMany({ where: { slaId: { in: slaIds } } });
+            await prisma.slaAuditLog.deleteMany({ where: { slaId: { in: slaIds } } });
+            await prisma.sla.deleteMany({ where: { id: { in: slaIds } } });
+        }
+
+        // 4. Delete the client
+        await prisma.client.delete({ where: { id } });
+
+        logger.info(`🏢 [CLIENT] ✅ Client deleted successfully: ${client.name} (ID: ${id})`);
+        res.status(200).json({ success: true, message: `Client ${client.name} deleted successfully` });
+    } catch (error) {
+        logger.error(`🚨 🏢 [CLIENT] ❌ Error deleting client ${req.params.id}: ${error.message}`);
+        next(error);
+    }
+};
+
 module.exports = {
     getAllClients,
     getClientById,
     createClient,
-    updateClient
+    updateClient,
+    deleteClient
 };

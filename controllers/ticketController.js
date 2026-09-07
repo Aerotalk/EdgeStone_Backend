@@ -149,6 +149,23 @@ const sendAutoReply = async (req, res, next) => {
     }
 };
 
+const deleteTicket = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const agentName = req.user ? req.user.name : 'Agent';
+        logger.info(`🎟️ [TICKET] 🗑️ Agent ${agentName} requested deletion of ticket ${id}`);
+
+        await ticketService.deleteTicket(id);
+        res.status(200).json({ success: true, message: `Ticket ${id} deleted successfully` });
+    } catch (error) {
+        if (error.message === 'Ticket not found') {
+            return res.status(404).json({ success: false, message: 'Ticket not found' });
+        }
+        logger.error(`🚨 🎟️ [TICKET] ❌ Error deleting ticket: ${error.message}`);
+        next(error);
+    }
+};
+
 module.exports = {
     getTickets,
     createTicket,
@@ -157,5 +174,6 @@ module.exports = {
     replyVendorTicket,
     getVendorEmails,
     toggleSla,
-    sendAutoReply
+    sendAutoReply,
+    deleteTicket
 };

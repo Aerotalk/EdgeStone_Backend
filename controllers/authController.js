@@ -83,8 +83,37 @@ const updateProfilePicture = async (req, res, next) => {
     }
 };
 
+const forgotPassword = async (req, res, next) => {
+    try {
+        const { email } = req.body;
+        logger.debug(`🐞 🔐 [AUTH] 📝 Request received: forgot-password for ${email}`);
+        const result = await authService.forgotPassword(email);
+        res.status(200).json(result);
+    } catch (error) {
+        logger.error(`🚨 🔐 [AUTH] ❌ Error in forgot-password: ${error.message}`);
+        next(error);
+    }
+};
+
+const resetPassword = async (req, res, next) => {
+    try {
+        const { email, token, newPassword } = req.body;
+        logger.debug(`🐞 🔐 [AUTH] 📝 Request received: reset-password for ${email}`);
+        const result = await authService.resetPassword(email, token, newPassword);
+        res.status(200).json(result);
+    } catch (error) {
+        logger.error(`🚨 🔐 [AUTH] ❌ Error in reset-password: ${error.message}`);
+        if (error.message.includes('Invalid or expired') || error.message.includes('required') || error.message.includes('characters')) {
+            return res.status(400).json({ success: false, message: error.message });
+        }
+        next(error);
+    }
+};
+
 module.exports = {
     login,
     getMe,
     updateProfilePicture,
+    forgotPassword,
+    resetPassword
 };

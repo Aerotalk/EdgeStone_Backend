@@ -23,5 +23,6 @@ router.get('/:id/activity-logs', protect, activityLogController.getActivityLogs)
 router.get('/:ticketId/activity-logs', protect, activityLogController.getActivityLogs);
 
 router.post('/:id/auto-reply', protect, ticketController.sendAutoReply);
+router.delete('/:id', protect, ticketController.deleteTicket);
 
 module.exports = router;
