@@ -122,7 +122,7 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
                 logger.error(`Error loading client emails: ${err.message}`);
             }
         }
-        const commonPublicDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com'];
+        const commonPublicDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com', 'edgestone.in'];
         const clientDomains = Array.from(clientEmails)
             .map(e => e.split('@')[1])
             .filter(d => d && !commonPublicDomains.includes(d.toLowerCase()));

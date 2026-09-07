@@ -96,7 +96,7 @@ const generateTicketId = async (ticketType = 'Client') => {
 //   2. References header   → checks each ID in the chain
 //   3. Re: subject match   → last resort for clients that strip headers
 // ─────────────────────────────────────────────────────────────────────────────
-const findExistingTicketForReply = async (inReplyTo, references, subject, body = '') => {
+const findExistingTicketForReply = async (inReplyTo, references, subject, body = '', from = null) => {
     // 0. Strategy A: Subject regex extraction (Most Reliable)
     // Supports [#1234], [1234], [#V1234], [V1234], [#1234-V], [1234-V], [#TEST-MV-1234]
     if (subject) {
@@ -106,7 +106,8 @@ const findExistingTicketForReply = async (inReplyTo, references, subject, body =
             const friendlyId = (rawId.startsWith('#') ? rawId : '#' + rawId).toUpperCase();
             const prisma = require('../models/index');
             const ticket = await prisma.ticket.findFirst({
-                where: { ticketId: { equals: friendlyId, mode: 'insensitive' } }
+                where: { ticketId: { equals: friendlyId, mode: 'insensitive' } },
+                include: { client: true, vendor: true }
             });
             if (ticket) {
                 logger.info(`🎟️ [TICKET] 🧵 Reply matched via Subject ID: ${friendlyId} → Ticket ${ticket.ticketId}`);
@@ -154,7 +155,7 @@ const findExistingTicketForReply = async (inReplyTo, references, subject, body =
     }
 
     // 3. Subject fallback: "Re: <original subject>" — strip Re:/Fwd: prefixes and match
-    // CHG-016: Disambiguate by Circuit ID if the reply mentions a circuit!
+    // STRICT ISOLATION: Must verify Circuit ID and Sender to prevent cross-client hijacking!
     if (subject) {
         const isReplyPattern = /^(Re|Fwd|FW|RE|FWD):\s*/i.test(subject);
         const stripped = subject.replace(/^(Re|Fwd|FW|RE|FWD):\s*/gi, '').trim();
@@ -163,7 +164,7 @@ const findExistingTicketForReply = async (inReplyTo, references, subject, body =
             const prisma = require('../models/index');
             // Fetch circuits to check if a circuit ID is explicitly mentioned in the reply
             const allCircuits = await prisma.circuit.findMany({
-                select: { id: true, customerCircuitId: true, supplierCircuitId: true }
+                select: { id: true, customerCircuitId: true, supplierCircuitId: true, clientId: true, vendorId: true }
             });
             
             const textToScan = `${subject} ${body || ''}`.toUpperCase();
@@ -183,29 +184,52 @@ const findExistingTicketForReply = async (inReplyTo, references, subject, body =
                 where: {
                     status: { notIn: ['Spam'] }
                 },
-                select: { id: true, ticketId: true, header: true, circuitId: true, status: true },
+                include: { client: true, vendor: true },
                 orderBy: { createdAt: 'desc' }
             });
 
-            // If a circuit was detected, prioritize matching tickets on that specific circuit!
+            // Helper to check if sender is authorized for this ticket
+            const isAuthorizedSender = (t, sender) => {
+                if (!sender) return true; // If no sender provided, fallback to circuit/subject matching
+                const cleanSender = sender.toLowerCase().trim();
+                if (cleanSender.includes('edgestone.in')) return true; // Agent/system is always authorized
+                if (t.email && t.email.toLowerCase() === cleanSender) return true;
+                if (Array.isArray(t.cc) && t.cc.some(c => c.toLowerCase() === cleanSender)) return true;
+                if (t.client && Array.isArray(t.client.emails) && t.client.emails.some(e => e.toLowerCase() === cleanSender)) return true;
+                if (t.vendor && Array.isArray(t.vendor.emails) && t.vendor.emails.some(e => e.toLowerCase() === cleanSender)) return true;
+                
+                // Check corporate domain match with client
+                if (t.client && Array.isArray(t.client.emails) && cleanSender.includes('@')) {
+                    const senderDomain = cleanSender.split('@')[1];
+                    const genericDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com'];
+                    if (!genericDomains.includes(senderDomain)) {
+                        if (t.client.emails.some(e => e.toLowerCase().endsWith('@' + senderDomain))) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            };
+
             let match = null;
             if (detectedCircuitId) {
+                // If a circuit was detected, ONLY match tickets on THAT specific circuit!
                 match = allTickets.find(t =>
                     t.circuitId === detectedCircuitId &&
-                    t.header && t.header.replace(/^(Re|Fwd|FW|RE|FWD):\s*/gi, '').trim().toLowerCase() === stripped.toLowerCase()
+                    t.header && t.header.replace(/^(Re|Fwd|FW|RE|FWD):\s*/gi, '').trim().toLowerCase() === stripped.toLowerCase() &&
+                    isAuthorizedSender(t, from)
                 );
                 if (match) {
                     logger.info(`🎟️ [TICKET] 🧵 Reply matched via subject + Circuit ID "${detectedCircuitId}": "${stripped}" → Ticket ${match.ticketId}`);
                 }
-            }
-
-            // Otherwise standard subject match
-            if (!match) {
+            } else if (from) {
+                // If no circuit in reply, match subject ONLY if sender is verified on this ticket
                 match = allTickets.find(t =>
-                    t.header && t.header.replace(/^(Re|Fwd|FW|RE|FWD):\s*/gi, '').trim().toLowerCase() === stripped.toLowerCase()
+                    t.header && t.header.replace(/^(Re|Fwd|FW|RE|FWD):\s*/gi, '').trim().toLowerCase() === stripped.toLowerCase() &&
+                    isAuthorizedSender(t, from)
                 );
                 if (match) {
-                    logger.info(`🎟️ [TICKET] 🧵 Reply matched via subject fallback: "${stripped}" → Ticket ${match.ticketId}`);
+                    logger.info(`🎟️ [TICKET] 🧵 Reply matched via subject + verified sender (${from}): "${stripped}" → Ticket ${match.ticketId}`);
                 }
             }
 
@@ -417,15 +441,26 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
         }
 
         // Auto-register new client email contacts into Client database
+        // STRICT ISOLATION: Prevent adding vendors or contacts of other clients
         if (ticket.clientId) {
             const client = await prisma.client.findUnique({ where: { id: ticket.clientId } });
             if (client) {
                 const currentEmails = Array.isArray(client.emails) ? client.emails : [];
                 const newEmailsToAdd = [];
                 const candidates = [from, ...incomingCcs, ...incomingTos];
+
+                // Load all vendors and other clients to block foreign email pollution
+                const VendorModel = require('../models/vendor');
+                const allVendors = await VendorModel.findAllVendors();
+                const allVendorEmails = new Set(allVendors.flatMap(v => (v.emails || []).map(e => e.toLowerCase().trim())));
+
+                const ClientModel = require('../models/client');
+                const allOtherClients = (await ClientModel.findAllClients()).filter(c => c.id !== ticket.clientId);
+                const allOtherClientEmails = new Set(allOtherClients.flatMap(c => (c.emails || []).map(e => e.toLowerCase().trim())));
+
                 candidates.forEach(email => {
                     const clean = email && email.trim().toLowerCase();
-                    if (clean && !clean.includes('edgestone.in')) {
+                    if (clean && !clean.includes('edgestone.in') && !allVendorEmails.has(clean) && !allOtherClientEmails.has(clean)) {
                         if (!currentEmails.some(e => e.toLowerCase() === clean) && !newEmailsToAdd.some(e => e.toLowerCase() === clean)) {
                             newEmailsToAdd.push(email.trim());
                         }
@@ -636,8 +671,15 @@ const createTicketFromEmail = async (emailData) => {
         }
 
         // 0. Check if this email is a reply to an existing ticket
-        const existingTicket = await findExistingTicketForReply(inReplyTo, references, subject, body);
+        const existingTicket = await findExistingTicketForReply(inReplyTo, references, subject, body, from);
         if (existingTicket) {
+            if (existingTicket.clientId && !existingTicket.client) {
+                try {
+                    const prisma = require('../models/index');
+                    existingTicket.client = await prisma.client.findUnique({ where: { id: existingTicket.clientId } });
+                } catch (_) {}
+            }
+
             // Determine if the sender is a known Vendor (case-insensitive)
             const VendorModel = require('../models/vendor');
             const vendors = await VendorModel.findAllVendors();
@@ -710,6 +752,10 @@ const createTicketFromEmail = async (emailData) => {
                 if (!finalVendorId && existingTicket._matchedReply.category?.startsWith('vendor_')) {
                     finalVendorId = existingTicket._matchedReply.category.replace('vendor_', '');
                 }
+            } else if (existingTicket._matchedReply && (existingTicket._matchedReply.type === 'client' || (existingTicket._matchedReply.type === 'agent' && (!existingTicket._matchedReply.category || existingTicket._matchedReply.category === 'client')))) {
+                logger.info(`🎟️ [TICKET] 🧵 Force-routing reply into Client thread due to parent reply in client thread`);
+                isVendor = false;
+                finalVendorId = null;
             }
 
             // Check if sender was added as a participant in previous replies of this ticket
@@ -795,15 +841,22 @@ const createTicketFromEmail = async (emailData) => {
                 }
             }
 
-            // PREVENT FALSE POSITIVE: If the sender is the original ticket-raiser AND is NOT a known vendor,
+            // PREVENT FALSE POSITIVE: If the sender is the original ticket-raiser, is on ticket CC,
+            // or is a recognized contact of the client who owns the ticket, AND subject is not marked as vendor (-V),
             // route to client thread.
-            if (existingTicket.email && existingTicket.email.toLowerCase() === from.toLowerCase() && !isVendor) {
+            const isExplicitVendor = subject && /\[#?V?\d+-V\]/i.test(subject);
+            const isClientSender = (existingTicket.email && existingTicket.email.toLowerCase() === from.toLowerCase()) ||
+                (Array.isArray(existingTicket.cc) && existingTicket.cc.some(c => c.toLowerCase() === from.toLowerCase())) ||
+                (existingTicket.client && Array.isArray(existingTicket.client.emails) && existingTicket.client.emails.some(e => e.toLowerCase() === from.toLowerCase()));
+
+            if (!isExplicitVendor && isClientSender) {
                 isVendor = false;
                 finalVendorId = null;
+                logger.info(`🎟️ [TICKET] 🎯 Sender ${from} is client/participant on Ticket ${existingTicket.ticketId} without vendor tag. Routing to Client thread.`);
             }
 
             // EXPLICIT ROUTING: If the subject contains the explicit vendor suffix
-            if (subject && /\[#?V?\d+-V\]/i.test(subject)) {
+            if (isExplicitVendor) {
                 isVendor = true;
                 if (!finalVendorId) finalVendorId = existingTicket.vendorId;
             }
@@ -902,25 +955,29 @@ const createTicketFromEmail = async (emailData) => {
 
             const subjectText = subject || '';
             const bodyText = body || '';
+            const cleanBodyText = stripQuotedReply(stripHtml(bodyText)) || bodyText;
             const subjectUpper = subjectText.toUpperCase();
             const bodyUpper = bodyText.toUpperCase();
 
-            // CHG-016: Client-Centric Prioritization
-            // When a client has multiple Circuit IDs, prioritize circuits belonging to that specific client
+            // CHG-016: Client-Centric Prioritization & Strict Client-Circuit Isolation
+            // When an identified client contacts us, ONLY search circuits owned by that client.
+            // Never allow an identified client to match or raise tickets against another client's circuits!
             let priorityCircuits = [];
             let secondaryCircuits = [];
 
             if (potentialClientIds.length > 0) {
                 priorityCircuits = allCircuits.filter(c => c.clientId && potentialClientIds.includes(c.clientId));
-                secondaryCircuits = allCircuits.filter(c => !c.clientId || !potentialClientIds.includes(c.clientId));
+                secondaryCircuits = []; // STRICT ISOLATION: Never match foreign client circuits!
             } else if (potentialVendorIds.length > 0) {
                 priorityCircuits = allCircuits.filter(c => 
                     (c.vendorId && potentialVendorIds.includes(c.vendorId)) ||
                     (c.isMultiVendor && c.vendorCircuits && c.vendorCircuits.some(vc => potentialVendorIds.includes(vc.vendorId)))
                 );
-                secondaryCircuits = allCircuits.filter(c => !priorityCircuits.includes(c));
+                secondaryCircuits = []; // STRICT ISOLATION: Never match foreign vendor circuits!
             } else {
+                // Unregistered sender or internal employee forwarding: search all circuits
                 priorityCircuits = allCircuits;
+                secondaryCircuits = [];
             }
 
             const findMatchInPool = (circuitPool) => {
@@ -938,25 +995,32 @@ const createTicketFromEmail = async (emailData) => {
                 });
                 poolIds.sort((a, b) => b.id.length - a.id.length);
 
-                // 1. Scan subject first
+                // 1. Scan subject first (explicit)
                 for (const item of poolIds) {
                     if (matchesCircuit(subjectText, item.id)) {
                         return { circuit: item.circuit, isSupplier: item.isSupplier, location: 'subject', matchedId: item.id };
                     }
                 }
-                // 2. Scan body
+                // 2. Scan fresh body (quoted conversation history stripped)
                 for (const item of poolIds) {
-                    if (matchesCircuit(bodyText, item.id)) {
+                    if (matchesCircuit(cleanBodyText, item.id)) {
                         return { circuit: item.circuit, isSupplier: item.isSupplier, location: 'body', matchedId: item.id };
+                    }
+                }
+                // 3. Scan full body (fallback if not in clean body)
+                if (cleanBodyText !== bodyText) {
+                    for (const item of poolIds) {
+                        if (matchesCircuit(bodyText, item.id)) {
+                            return { circuit: item.circuit, isSupplier: item.isSupplier, location: 'body_quoted', matchedId: item.id };
+                        }
                     }
                 }
                 return null;
             };
 
-            // Search priority circuits first (belonging to sender client/vendor)
+            // Search circuits (restricted to sender's own circuits when sender is an identified client)
             let matchResult = findMatchInPool(priorityCircuits);
 
-            // If not found in priority circuits, search secondary circuits
             if (!matchResult && secondaryCircuits.length > 0) {
                 matchResult = findMatchInPool(secondaryCircuits);
             }
@@ -998,14 +1062,31 @@ const createTicketFromEmail = async (emailData) => {
                         matchedCircuitVendorId = detectedCircuitRecord.vendorId;
                     }
 
-                    // If the sender is explicitly a Vendor for this circuit, assign it as a Vendor ticket
-                    if (matchedCircuitVendorId) {
+                    const isExplicitVendor = (matchResult && matchResult.isSupplier) || (subject && /\[#?V?\d+-V\]/i.test(subject));
+
+                    // 1. If NOT explicitly a vendor communication, and the sender is a recognized client for this circuit:
+                    // Priority belongs to Client! (prevents client ticket using customer circuit ID from being hijacked as vendor ticket)
+                    if (!isExplicitVendor && detectedCircuitRecord.clientId && potentialClientIds.includes(detectedCircuitRecord.clientId)) {
+                        clientId = detectedCircuitRecord.clientId;
+                        ticketType = 'Client';
+                        vendorId = null;
+                        logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Client ${clientId} based on Circuit ${circuitId} (Sender is recognized client)`);
+                    }
+                    // 2. If explicitly vendor OR sender is ONLY a vendor (not a client):
+                    else if (matchedCircuitVendorId && (isExplicitVendor || potentialClientIds.length === 0)) {
                         vendorId = matchedCircuitVendorId;
                         ticketType = 'Vendor';
                         clientId = null;
                         logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Vendor ${vendorId} based on Circuit ${circuitId}`);
-                    } 
-                    // Otherwise, always assign it to the Client who owns the circuit (this handles internal employees forwarding emails)
+                    }
+                    // 3. If matchedCircuitVendorId exists and sender is not recognized as the client for this circuit:
+                    else if (matchedCircuitVendorId && (!detectedCircuitRecord.clientId || !potentialClientIds.includes(detectedCircuitRecord.clientId))) {
+                        vendorId = matchedCircuitVendorId;
+                        ticketType = 'Vendor';
+                        clientId = null;
+                        logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Vendor ${vendorId} based on Circuit ${circuitId} (Vendor matched)`);
+                    }
+                    // 4. Default to Client who owns the circuit (handles internal employees forwarding client emails or recognized clients):
                     else if (detectedCircuitRecord.clientId) {
                         clientId = detectedCircuitRecord.clientId;
                         ticketType = 'Client';
@@ -1465,8 +1546,28 @@ const updateTicket = async (ticketId, updates, agentName) => {
             }
         }
 
-        // 3. Log individual field changes
+        // 3. Log individual field changes & sync client/vendor from circuit if missing
         if (updates.circuitId && updates.circuitId !== ticket.circuitId) {
+            const prisma = require('../models/index');
+            const circuit = await prisma.circuit.findFirst({
+                where: {
+                    OR: [
+                        { customerCircuitId: updates.circuitId },
+                        { supplierCircuitId: updates.circuitId },
+                        { id: updates.circuitId }
+                    ]
+                }
+            });
+            if (circuit) {
+                if (!ticket.clientId && circuit.clientId) {
+                    finalUpdates.clientId = circuit.clientId;
+                    logger.info(`🎟️ [TICKET] 🔗 Inherited Client ${circuit.clientId} for Ticket ${ticket.ticketId} from Circuit ${updates.circuitId}`);
+                }
+                if (!ticket.vendorId && circuit.vendorId) {
+                    finalUpdates.vendorId = circuit.vendorId;
+                }
+            }
+
             await ActivityLogModel.createActivityLog({
                 ticketId: ticket.id,
                 action: 'updated',

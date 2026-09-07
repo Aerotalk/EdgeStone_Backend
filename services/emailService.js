@@ -457,7 +457,7 @@ const syncSentItemsEmails = async (accessToken, userEmail) => {
             const referencesHeader = msg.internetMessageHeaders?.find(h => h.name?.toLowerCase() === 'references')?.value || null;
 
             // Check if this sent message matches an existing ticket
-            const existingTicket = await ticketService.findExistingTicketForReply(inReplyToHeader, referencesHeader, subject, msg.body?.content);
+            const existingTicket = await ticketService.findExistingTicketForReply(inReplyToHeader, referencesHeader, subject, msg.body?.content, fromAddr);
             if (!existingTicket) {
                 processedGraphIds.add(msg.id);
                 if (msg.internetMessageId) processedGraphIds.add(msg.internetMessageId);
@@ -551,7 +551,7 @@ const fetchNewGraphEmails = async () => {
 
                 // If ownEmail sends a message into Inbox (e.g. self-CC or loopback):
                 if (isOwnEmail) {
-                    const existingTicket = await ticketService.findExistingTicketForReply(inReplyToHeader, referencesHeader, msg.subject, msg.body?.content);
+                    const existingTicket = await ticketService.findExistingTicketForReply(inReplyToHeader, referencesHeader, msg.subject, msg.body?.content, fromAddr);
                     if (existingTicket && !processedGraphIds.has(msg.id)) {
                         processedGraphIds.add(msg.id);
                         if (msg.internetMessageId) processedGraphIds.add(msg.internetMessageId);
