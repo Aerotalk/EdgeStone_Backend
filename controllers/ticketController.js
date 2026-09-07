@@ -101,7 +101,8 @@ const replyVendorTicket = async (req, res, next) => {
 const getVendorEmails = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const emails = await vendorTicketingService.getVendorEmailsForTicket(id);
+        const { vendorId } = req.query;
+        const emails = await vendorTicketingService.getVendorEmailsForTicket(id, vendorId);
         res.json({ emails });
     } catch (error) {
         next(error);

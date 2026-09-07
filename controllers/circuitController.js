@@ -94,6 +94,13 @@ const createCircuit = async (req, res, next) => {
             return res.status(400).json({ success: false, message: 'customerCircuitId is required.' });
         }
 
+        if (isMultiVendor && Array.isArray(vendorCircuits) && vendorCircuits.length > 4) {
+            return res.status(400).json({
+                success: false,
+                message: 'A Multi-Vendor circuit can have at most 4 vendors.'
+            });
+        }
+
         let customerCircuitId = reqCustomerCircuitId.trim();
         let supplierCircuitId = reqSupplierCircuitId?.trim();
 
@@ -199,6 +206,13 @@ const updateCircuit = async (req, res, next) => {
             isMultiVendor,
             vendorCircuits,
         } = req.body;
+
+        if (isMultiVendor && Array.isArray(vendorCircuits) && vendorCircuits.length > 4) {
+            return res.status(400).json({
+                success: false,
+                message: 'A Multi-Vendor circuit can have at most 4 vendors.'
+            });
+        }
 
         // Check duplicate customerCircuitId only if it's changing
         if (customerCircuitId && customerCircuitId.trim() !== existing.customerCircuitId) {

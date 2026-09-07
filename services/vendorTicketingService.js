@@ -5,7 +5,7 @@ const prisma = require('../models/index');
 // ─────────────────────────────────────────────────────────────────────────────
 // getVendorEmailsForTicket
 // ─────────────────────────────────────────────────────────────────────────────
-const getVendorEmailsForTicket = async (ticketId) => {
+const getVendorEmailsForTicket = async (ticketId, vendorId = null) => {
     let ticket;
     if (ticketId.startsWith('#')) {
         const tickets = await TicketModel.findAllTickets();
@@ -15,18 +15,38 @@ const getVendorEmailsForTicket = async (ticketId) => {
     }
     if (!ticket) throw new Error(`Ticket ${ticketId} not found`);
 
+    const VendorModel = require('../models/vendor');
+
+    if (vendorId) {
+        const vendor = await VendorModel.findVendorById(vendorId);
+        if (vendor && vendor.emails && vendor.emails.length > 0) return vendor.emails;
+    }
+
     let emails = [];
     if (ticket.vendorId) {
-        const VendorModel = require('../models/vendor');
         const vendor = await VendorModel.findVendorById(ticket.vendorId);
         if (vendor && vendor.emails) emails = vendor.emails;
     } else if (ticket.circuitId) {
-        const circuit = await prisma.circuit.findUnique({
-            where: { customerCircuitId: ticket.circuitId },
-            include: { vendor: true }
+        const circuit = await prisma.circuit.findFirst({
+            where: {
+                OR: [
+                    { customerCircuitId: ticket.circuitId },
+                    { supplierCircuitId: ticket.circuitId },
+                    { id: ticket.circuitId }
+                ]
+            },
+            include: { vendor: true, vendorCircuits: { include: { vendor: true } } }
         });
-        if (circuit && circuit.vendor && circuit.vendor.emails) {
-            emails = circuit.vendor.emails;
+        if (circuit) {
+            if (vendorId && circuit.vendorCircuits) {
+                const vc = circuit.vendorCircuits.find(v => v.vendorId === vendorId);
+                if (vc && vc.vendor && vc.vendor.emails) return vc.vendor.emails;
+            }
+            if (circuit.vendor && circuit.vendor.emails) {
+                emails = circuit.vendor.emails;
+            } else if (circuit.vendorCircuits && circuit.vendorCircuits.length > 0 && circuit.vendorCircuits[0].vendor?.emails) {
+                emails = circuit.vendorCircuits[0].vendor.emails;
+            }
         }
     }
     return emails;

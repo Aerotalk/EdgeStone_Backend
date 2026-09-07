@@ -98,9 +98,9 @@ const generateTicketId = async (ticketType = 'Client') => {
 // ─────────────────────────────────────────────────────────────────────────────
 const findExistingTicketForReply = async (inReplyTo, references, subject, body = '') => {
     // 0. Strategy A: Subject regex extraction (Most Reliable)
-    // Supports [#1234], [1234], [#V1234], [V1234], [#1234-V], [1234-V]
+    // Supports [#1234], [1234], [#V1234], [V1234], [#1234-V], [1234-V], [#TEST-MV-1234]
     if (subject) {
-        const ticketIdMatch = subject.match(/\[#?(V?\d+)(?:-V)?\]/i);
+        const ticketIdMatch = subject.match(/\[#?([A-Za-z0-9_-]+?)(?:-V)?\]/i);
         if (ticketIdMatch && ticketIdMatch[1]) {
             const rawId = ticketIdMatch[1];
             const friendlyId = (rawId.startsWith('#') ? rawId : '#' + rawId).toUpperCase();
@@ -525,13 +525,26 @@ const createTicketFromEmail = async (emailData) => {
 
             if (isVendor && !finalVendorId) {
                 finalVendorId = existingTicket.vendorId;
-                if (!finalVendorId && existingTicket.circuitId) {
+                if (existingTicket.circuitId) {
                     try {
                         const prisma = require('../models/index');
                         const circuit = await prisma.circuit.findFirst({
-                            where: { OR: [ { customerCircuitId: existingTicket.circuitId }, { supplierCircuitId: existingTicket.circuitId }, { id: existingTicket.circuitId } ] }
+                            where: { OR: [ { customerCircuitId: existingTicket.circuitId }, { supplierCircuitId: existingTicket.circuitId }, { id: existingTicket.circuitId } ] },
+                            include: { vendorCircuits: { include: { vendor: true } } }
                         });
-                        if (circuit) finalVendorId = circuit.vendorId;
+                        if (circuit) {
+                            if (circuit.isMultiVendor && circuit.vendorCircuits && circuit.vendorCircuits.length > 0) {
+                                const textScan = `${subject || ''} ${body || ''}`.toUpperCase();
+                                const vcMatch = circuit.vendorCircuits.find(vc => 
+                                    (vc.vendor?.emails && vc.vendor.emails.some(e => e.toLowerCase() === from.toLowerCase())) ||
+                                    (vc.supplierCircuitId && textScan.includes(vc.supplierCircuitId.toUpperCase()))
+                                );
+                                if (vcMatch && vcMatch.vendorId) {
+                                    finalVendorId = vcMatch.vendorId;
+                                }
+                            }
+                            if (!finalVendorId) finalVendorId = circuit.vendorId;
+                        }
                     } catch (vErr) {
                         logger.error(`Error finding circuit vendorId: ${vErr.message}`);
                     }
@@ -619,6 +632,13 @@ const createTicketFromEmail = async (emailData) => {
                 circuitPool.forEach(c => {
                     if (c.customerCircuitId) poolIds.push({ id: c.customerCircuitId, circuit: c, isSupplier: false });
                     if (c.supplierCircuitId) poolIds.push({ id: c.supplierCircuitId, circuit: c, isSupplier: true });
+                    if (c.isMultiVendor && Array.isArray(c.vendorCircuits)) {
+                        c.vendorCircuits.forEach(vc => {
+                            if (vc.supplierCircuitId) {
+                                poolIds.push({ id: vc.supplierCircuitId, circuit: c, isSupplier: true });
+                            }
+                        });
+                    }
                 });
                 poolIds.sort((a, b) => b.id.length - a.id.length);
 
