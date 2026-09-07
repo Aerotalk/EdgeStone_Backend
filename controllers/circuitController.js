@@ -7,9 +7,9 @@ const logger = require('../utils/logger');
 
 // ── Shared include block ──────────────────────────────────────────────────────
 const CIRCUIT_INCLUDE = {
-    vendor: { select: { id: true, name: true, status: true } },
-    client: { select: { id: true, name: true, status: true } },
-    vendorCircuits: { include: { vendor: { select: { id: true, name: true, status: true } } } },
+    vendor: { select: { id: true, name: true, status: true, emails: true } },
+    client: { select: { id: true, name: true, status: true, emails: true } },
+    vendorCircuits: { include: { vendor: { select: { id: true, name: true, status: true, emails: true } } } },
 };
 
 // ── Shared serialiser ─────────────────────────────────────────────────────────
