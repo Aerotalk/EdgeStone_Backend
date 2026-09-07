@@ -144,7 +144,7 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
             type: 'agent',
             category: emailData.vendorId ? `vendor_${emailData.vendorId}` : 'vendor', // Explicitly marking this thread as vendor-side
             to: vendorContactEmails,
-            cc: cc || [],
+            cc: visibleVendorCc,
             bcc: hiddenVendorBcc,
             attachments: attachments || []
         });
