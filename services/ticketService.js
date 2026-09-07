@@ -232,6 +232,16 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
     let replyText = stripHtml(body || html) || '(No Content)';
     replyText = stripQuotedReply(replyText) || replyText; // fallback if stripping removes everything somehow
 
+    const toList = [from];
+    if (Array.isArray(emailData.to)) {
+        emailData.to.forEach(e => {
+            const clean = e && e.trim().toLowerCase();
+            if (clean && clean !== from.toLowerCase() && !toList.some(x => x.toLowerCase() === clean)) {
+                toList.push(e.trim());
+            }
+        });
+    }
+
     const reply = await TicketModel.addReply(ticket.id, {
         text: replyText,
         time: emailReceivedDate.toLocaleTimeString('en-US', {
@@ -243,7 +253,7 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
         author: fromName || from,
         type: 'client',
         category: 'client',
-        to: [from],
+        to: toList,
         cc: emailData.cc || [],
         messageId: emailData.messageId || null,
         attachments: emailData.attachments || []
@@ -261,13 +271,17 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
         author: fromName || from,
     });
 
-    // CHG-015: Update ticket.cc if incoming email has CCs or comes from a new CC participant
+    // Update ticket.cc if incoming email has CCs/TOs or comes from a new participant
     try {
         const prisma = require('../models/index');
         const existingCcs = Array.isArray(ticket.cc) ? ticket.cc : [];
         const incomingCcs = Array.isArray(emailData.cc) ? emailData.cc : [];
-        const newParticipants = [...existingCcs, ...incomingCcs];
-        if (from && from.toLowerCase() !== ticket.email?.toLowerCase()) {
+        const incomingTos = (Array.isArray(emailData.to) ? emailData.to : []).filter(e => {
+            const clean = e && e.toLowerCase().trim();
+            return clean && !clean.includes('edgestone.in') && clean !== ticket.email?.toLowerCase();
+        });
+        const newParticipants = [...existingCcs, ...incomingCcs, ...incomingTos];
+        if (from && from.toLowerCase() !== ticket.email?.toLowerCase() && !from.toLowerCase().includes('edgestone.in')) {
             newParticipants.push(from);
         }
         const mergedCcs = Array.from(new Set(newParticipants.map(e => e.trim().toLowerCase()))).filter(e => e && e !== ticket.email?.toLowerCase());
@@ -279,8 +293,33 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
             });
             logger.info(`🎟️ [TICKET] 👥 Updated ticket CC list for Ticket ${ticket.ticketId}: ${mergedCcs.join(', ')}`);
         }
+
+        // Auto-register new client email contacts into Client database
+        if (ticket.clientId) {
+            const client = await prisma.client.findUnique({ where: { id: ticket.clientId } });
+            if (client) {
+                const currentEmails = Array.isArray(client.emails) ? client.emails : [];
+                const newEmailsToAdd = [];
+                const candidates = [from, ...incomingCcs, ...incomingTos];
+                candidates.forEach(email => {
+                    const clean = email && email.trim().toLowerCase();
+                    if (clean && !clean.includes('edgestone.in')) {
+                        if (!currentEmails.some(e => e.toLowerCase() === clean) && !newEmailsToAdd.some(e => e.toLowerCase() === clean)) {
+                            newEmailsToAdd.push(email.trim());
+                        }
+                    }
+                });
+                if (newEmailsToAdd.length > 0) {
+                    await prisma.client.update({
+                        where: { id: ticket.clientId },
+                        data: { emails: [...currentEmails, ...newEmailsToAdd] }
+                    });
+                    logger.info(`👤 [CLIENT] ➕ Auto-registered new client contact emails for ${client.name}: ${newEmailsToAdd.join(', ')}`);
+                }
+            }
+        }
     } catch (ccErr) {
-        logger.error(`Failed to update ticket.cc in appendClientReplyToTicket: ${ccErr.message}`);
+        logger.error(`Failed to update ticket.cc / client.emails in appendClientReplyToTicket: ${ccErr.message}`);
     }
 
     logger.info(`🎟️ [TICKET] ✅ Client reply appended to Ticket ${ticket.ticketId}`);
@@ -324,6 +363,16 @@ const appendVendorReplyToTicket = async (ticket, emailData, vendorId = null) => 
     let replyText = stripHtml(body || html) || '(No Content)';
     replyText = stripQuotedReply(replyText) || replyText;
 
+    const toList = [from];
+    if (Array.isArray(emailData.to)) {
+        emailData.to.forEach(e => {
+            const clean = e && e.trim().toLowerCase();
+            if (clean && clean !== from.toLowerCase() && !toList.some(x => x.toLowerCase() === clean)) {
+                toList.push(e.trim());
+            }
+        });
+    }
+
     const reply = await TicketModel.addReply(ticket.id, {
         text: replyText,
         time: emailReceivedDate.toLocaleTimeString('en-US', {
@@ -335,11 +384,45 @@ const appendVendorReplyToTicket = async (ticket, emailData, vendorId = null) => 
         author: fromName || from,
         type: 'vendor',
         category: vendorId ? `vendor_${vendorId}` : 'vendor',
-        to: [from],
+        to: toList,
         cc: emailData.cc || [],
         messageId: emailData.messageId || null,
         attachments: emailData.attachments || []
     });
+
+    // Auto-register new vendor email contacts into Vendor database
+    if (vendorId) {
+        try {
+            const prisma = require('../models/index');
+            const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
+            if (vendor) {
+                const currentEmails = Array.isArray(vendor.emails) ? vendor.emails : [];
+                const clientCcs = Array.isArray(ticket.cc) ? ticket.cc.map(c => c.toLowerCase().trim()) : [];
+                const clientEmail = ticket.email ? ticket.email.toLowerCase().trim() : null;
+                const newEmailsToAdd = [];
+
+                const candidates = [from, ...(emailData.to || []), ...(emailData.cc || [])];
+                candidates.forEach(email => {
+                    const clean = email && email.trim().toLowerCase();
+                    if (clean && !clean.includes('edgestone.in') && clean !== clientEmail && !clientCcs.includes(clean)) {
+                        if (!currentEmails.some(e => e.toLowerCase() === clean) && !newEmailsToAdd.some(e => e.toLowerCase() === clean)) {
+                            newEmailsToAdd.push(email.trim());
+                        }
+                    }
+                });
+
+                if (newEmailsToAdd.length > 0) {
+                    await prisma.vendor.update({
+                        where: { id: vendorId },
+                        data: { emails: [...currentEmails, ...newEmailsToAdd] }
+                    });
+                    logger.info(`🏢 [VENDOR] ➕ Auto-registered new vendor contact emails for ${vendor.name}: ${newEmailsToAdd.join(', ')}`);
+                }
+            }
+        } catch (vErr) {
+            logger.error(`Failed to update vendor.emails in appendVendorReplyToTicket: ${vErr.message}`);
+        }
+    }
 
     // Log activity
     const ActivityLogModel = require('../models/activityLog');
@@ -507,20 +590,100 @@ const createTicketFromEmail = async (emailData) => {
                 }
             }
 
+            // Check if sender was added as a participant in previous replies of this ticket
+            if (!isVendor) {
+                const cleanFrom = from.trim().toLowerCase();
+                try {
+                    const prisma = require('../models/index');
+                    const previousReplies = await prisma.reply.findMany({
+                        where: { ticketId: existingTicket.id },
+                        orderBy: { createdAt: 'desc' }
+                    });
+
+                    // 1. Was sender in TO or CC of any previous Vendor reply?
+                    for (const r of previousReplies) {
+                        const isVendorRep = r.category === 'vendor' || r.category?.startsWith('vendor_') || r.type === 'vendor';
+                        if (isVendorRep) {
+                            const participants = [
+                                ...(Array.isArray(r.to) ? r.to : []),
+                                ...(Array.isArray(r.cc) ? r.cc : [])
+                            ].map(e => e.toLowerCase().trim());
+
+                            if (participants.includes(cleanFrom)) {
+                                isVendor = true;
+                                if (r.category?.startsWith('vendor_')) {
+                                    finalVendorId = r.category.replace('vendor_', '');
+                                } else if (existingTicket.vendorId) {
+                                    finalVendorId = existingTicket.vendorId;
+                                }
+                                logger.info(`🎟️ [TICKET] 🎯 Identified ${from} as VENDOR based on prior vendor reply participant in category ${r.category}`);
+                                break;
+                            }
+                        }
+                    }
+
+                    // 2. Check if subject has vendor tag e.g. [#1024-V] or [1024-V]
+                    if (!isVendor && subject && /\[#?V?\d+-V\]/i.test(subject)) {
+                        isVendor = true;
+                        logger.info(`🎟️ [TICKET] 🧵 Force-routing reply into Vendor thread due to -V tag in subject`);
+                    }
+
+                    // 3. Check if email mentions supplier circuit ID of any vendor on this circuit
+                    if (!isVendor && existingTicket.circuitId) {
+                        const circuit = await prisma.circuit.findFirst({
+                            where: { OR: [ { customerCircuitId: existingTicket.circuitId }, { supplierCircuitId: existingTicket.circuitId }, { id: existingTicket.circuitId } ] },
+                            include: { vendorCircuits: true }
+                        });
+                        if (circuit) {
+                            const textScan = `${subject || ''} ${body || ''}`.toUpperCase();
+                            if (circuit.isMultiVendor && circuit.vendorCircuits && circuit.vendorCircuits.length > 0) {
+                                const matchedVc = circuit.vendorCircuits.find(vc => 
+                                    vc.supplierCircuitId && textScan.includes(vc.supplierCircuitId.toUpperCase())
+                                );
+                                if (matchedVc) {
+                                    isVendor = true;
+                                    finalVendorId = matchedVc.vendorId;
+                                    logger.info(`🎟️ [TICKET] 🎯 Identified ${from} as VENDOR for multi-vendor circuit based on Supplier Circuit ID ${matchedVc.supplierCircuitId}`);
+                                }
+                            } else if (circuit.supplierCircuitId && textScan.includes(circuit.supplierCircuitId.toUpperCase())) {
+                                isVendor = true;
+                                finalVendorId = circuit.vendorId;
+                                logger.info(`🎟️ [TICKET] 🎯 Identified ${from} as VENDOR based on Supplier Circuit ID ${circuit.supplierCircuitId}`);
+                            }
+                        }
+                    }
+
+                    // 4. Corporate Domain match: If sender's domain matches any vendor associated with this circuit
+                    if (!isVendor && cleanFrom.includes('@')) {
+                        const fromDomain = cleanFrom.split('@')[1];
+                        const genericDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com'];
+                        if (!genericDomains.includes(fromDomain)) {
+                            for (const v of vendors) {
+                                if (Array.isArray(v.emails) && v.emails.some(e => e.toLowerCase().endsWith('@' + fromDomain))) {
+                                    isVendor = true;
+                                    finalVendorId = v.id;
+                                    logger.info(`🎟️ [TICKET] 🎯 Identified ${from} as VENDOR based on domain @${fromDomain} matching vendor ${v.name}`);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } catch (pErr) {
+                    logger.error(`Error in participant reply inspection: ${pErr.message}`);
+                }
+            }
+
             // PREVENT FALSE POSITIVE: If the sender is the original ticket-raiser AND is NOT a known vendor,
-            // route to client thread. But if they ARE a known vendor (e.g. vendor who raised a maintenance ticket
-            // and is now replying to it), keep isVendor = true so the reply goes to the Vendor tab.
+            // route to client thread.
             if (existingTicket.email && existingTicket.email.toLowerCase() === from.toLowerCase() && !isVendor) {
                 isVendor = false;
                 finalVendorId = null;
             }
 
-            // EXPLICIT ROUTING: If the subject contains the explicit vendor suffix (e.g. [#1024-V] or [1024-V]), force it into vendor thread
-            // even if the email doesn't strictly match the saved vendor emails list in the DB yet!
+            // EXPLICIT ROUTING: If the subject contains the explicit vendor suffix
             if (subject && /\[#?V?\d+-V\]/i.test(subject)) {
-                logger.info(`🎟️ [TICKET] 🧵 Force-routing reply into Vendor thread due to -V tag in subject`);
                 isVendor = true;
-                if (!finalVendorId) finalVendorId = existingTicket.vendorId; // Default to primary vendor if unmapped
+                if (!finalVendorId) finalVendorId = existingTicket.vendorId;
             }
 
             if (isVendor && !finalVendorId) {
@@ -541,6 +704,17 @@ const createTicketFromEmail = async (emailData) => {
                                 );
                                 if (vcMatch && vcMatch.vendorId) {
                                     finalVendorId = vcMatch.vendorId;
+                                } else {
+                                    // If no specific vendor matched yet, find which vendor thread has the latest reply
+                                    const lastVendorRep = await prisma.reply.findFirst({
+                                        where: { ticketId: existingTicket.id, category: { startsWith: 'vendor_' } },
+                                        orderBy: { createdAt: 'desc' }
+                                    });
+                                    if (lastVendorRep && lastVendorRep.category?.startsWith('vendor_')) {
+                                        finalVendorId = lastVendorRep.category.replace('vendor_', '');
+                                    } else {
+                                        finalVendorId = circuit.vendorCircuits[0].vendorId;
+                                    }
                                 }
                             }
                             if (!finalVendorId) finalVendorId = circuit.vendorId;
@@ -747,6 +921,25 @@ const createTicketFromEmail = async (emailData) => {
         logger.info(`🎟️ [TICKET] ⏰ PERMAN Formatted Time: ${emailReceivedDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`);
 
         // 5. Create Ticket with real timestamp
+        const incomingTos = (Array.isArray(emailData.to) ? emailData.to : []).filter(e => {
+            const clean = e && e.toLowerCase().trim();
+            return clean && !clean.includes('edgestone.in') && clean !== from.toLowerCase();
+        });
+        const initialCcs = Array.from(new Set([
+            ...(Array.isArray(emailData.cc) ? emailData.cc : []),
+            ...incomingTos
+        ].map(e => e.trim().toLowerCase()))).filter(e => e && e !== from.toLowerCase());
+
+        const initialToList = [from];
+        if (Array.isArray(emailData.to)) {
+            emailData.to.forEach(e => {
+                const clean = e && e.trim().toLowerCase();
+                if (clean && clean !== from.toLowerCase() && !initialToList.some(x => x.toLowerCase() === clean)) {
+                    initialToList.push(e.trim());
+                }
+            });
+        }
+
         try {
             ticket = await TicketModel.createTicket({
                 ticketId,
@@ -766,7 +959,7 @@ const createTicketFromEmail = async (emailData) => {
                 clientId: clientId,
                 vendorId: vendorId,
                 ticketType: ticketType,
-                cc: emailData.cc || [],
+                cc: initialCcs,
                 replies: {
                     create: {
                         text: stripQuotedReply(stripHtml(body)) || '(No Content)',
@@ -778,8 +971,9 @@ const createTicketFromEmail = async (emailData) => {
                         date: emailReceivedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
                         author: fromName || from,
                         type: ticketType.toLowerCase(),
-                        category: ticketType.toLowerCase(),
-                        to: [from],
+                        category: (ticketType === 'Vendor' && vendorId) ? `vendor_${vendorId}` : ticketType.toLowerCase(),
+                        to: initialToList,
+                        cc: emailData.cc || [],
                     }
                 },
                 activityLogs: {
@@ -800,6 +994,50 @@ const createTicketFromEmail = async (emailData) => {
                     }
                 }
             });
+
+            // Auto-register contacts into Client or Vendor model
+            if (clientId) {
+                try {
+                    const client = await prisma.client.findUnique({ where: { id: clientId } });
+                    if (client) {
+                        const currentEmails = Array.isArray(client.emails) ? client.emails : [];
+                        const newEmails = [];
+                        [from, ...initialCcs].forEach(em => {
+                            const c = em && em.trim().toLowerCase();
+                            if (c && !c.includes('edgestone.in') && !currentEmails.some(x => x.toLowerCase() === c) && !newEmails.some(x => x.toLowerCase() === c)) {
+                                newEmails.push(em.trim());
+                            }
+                        });
+                        if (newEmails.length > 0) {
+                            await prisma.client.update({ where: { id: clientId }, data: { emails: [...currentEmails, ...newEmails] } });
+                            logger.info(`👤 [CLIENT] ➕ Auto-registered contact emails for ${client.name}: ${newEmails.join(', ')}`);
+                        }
+                    }
+                } catch (cErr) {
+                    logger.error(`Error auto-registering client emails: ${cErr.message}`);
+                }
+            } else if (vendorId) {
+                try {
+                    const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
+                    if (vendor) {
+                        const currentEmails = Array.isArray(vendor.emails) ? vendor.emails : [];
+                        const newEmails = [];
+                        [from, ...initialCcs].forEach(em => {
+                            const c = em && em.trim().toLowerCase();
+                            if (c && !c.includes('edgestone.in') && !currentEmails.some(x => x.toLowerCase() === c) && !newEmails.some(x => x.toLowerCase() === c)) {
+                                newEmails.push(em.trim());
+                            }
+                        });
+                        if (newEmails.length > 0) {
+                            await prisma.vendor.update({ where: { id: vendorId }, data: { emails: [...currentEmails, ...newEmails] } });
+                            logger.info(`🏢 [VENDOR] ➕ Auto-registered contact emails for ${vendor.name}: ${newEmails.join(', ')}`);
+                        }
+                    }
+                } catch (vErr) {
+                    logger.error(`Error auto-registering vendor emails: ${vErr.message}`);
+                }
+            }
+
             break; // Success! Exit loop
         } catch (error) {
             if (error.code === 'P2002' && retries < maxRetries - 1) {
