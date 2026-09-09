@@ -14,10 +14,25 @@ async function main() {
     });
     console.log(`Deleted ${vendors.count} vendor records.`);
 
-    const agents = await prisma.user.deleteMany({
-        where: { name: { startsWith: 'E2E ' } }
+    const agents = await prisma.agent.deleteMany({
+        where: {
+            OR: [
+                { name: { startsWith: 'E2E ' } },
+                { email: { startsWith: 'e2e_' } }
+            ]
+        }
     });
     console.log(`Deleted ${agents.count} agent records.`);
+
+    const users = await prisma.user.deleteMany({
+        where: {
+            OR: [
+                { name: { startsWith: 'E2E ' } },
+                { email: { startsWith: 'e2e_' } }
+            ]
+        }
+    });
+    console.log(`Deleted ${users.count} user records.`);
 }
 
 main()

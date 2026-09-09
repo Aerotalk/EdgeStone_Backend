@@ -511,7 +511,7 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
 // appendVendorReplyToTicket
 // Appends a vendor's reply email to an existing ticket's vendor thread.
 // ─────────────────────────────────────────────────────────────────────────────
-const appendVendorReplyToTicket = async (ticket, emailData, vendorId = null) => {
+const appendVendorReplyToTicket = async (ticket, emailData, vendorId = null, isMultiVendor = false) => {
     const { from, fromName, body, html, date } = emailData;
     const emailReceivedDate = date ? new Date(date) : new Date();
 
@@ -540,7 +540,7 @@ const appendVendorReplyToTicket = async (ticket, emailData, vendorId = null) => 
         date: emailReceivedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
         author: fromName || from,
         type: 'vendor',
-        category: vendorId ? `vendor_${vendorId}` : 'vendor',
+        category: (vendorId && isMultiVendor) ? `vendor_${vendorId}` : 'vendor',
         to: toList,
         cc: emailData.cc || [],
         messageId: emailData.messageId || null,
@@ -861,6 +861,7 @@ const createTicketFromEmail = async (emailData) => {
                 if (!finalVendorId) finalVendorId = existingTicket.vendorId;
             }
 
+            let isCircuitMultiVendor = false;
             if (isVendor && !finalVendorId) {
                 finalVendorId = existingTicket.vendorId;
                 if (existingTicket.circuitId) {
@@ -871,6 +872,7 @@ const createTicketFromEmail = async (emailData) => {
                             include: { vendorCircuits: { include: { vendor: true } } }
                         });
                         if (circuit) {
+                            isCircuitMultiVendor = !!circuit.isMultiVendor;
                             if (circuit.isMultiVendor && circuit.vendorCircuits && circuit.vendorCircuits.length > 0) {
                                 const textScan = `${subject || ''} ${body || ''}`.toUpperCase();
                                 const vcMatch = circuit.vendorCircuits.find(vc => 
@@ -901,7 +903,7 @@ const createTicketFromEmail = async (emailData) => {
             }
 
             if (isVendor) {
-                return await appendVendorReplyToTicket(existingTicket, emailData, finalVendorId);
+                return await appendVendorReplyToTicket(existingTicket, emailData, finalVendorId, isCircuitMultiVendor);
             } else {
                 return await appendClientReplyToTicket(existingTicket, emailData);
             }

@@ -33,7 +33,8 @@ describe('E2E: Admin CRUD Operations', () => {
         // Cleanup all E2E resources directly via Prisma instead of API to ensure tests don't leave residual dummy data
         const { PrismaClient } = require('@prisma/client');
         const prisma = new PrismaClient();
-        await prisma.user.deleteMany({ where: { name: { startsWith: 'E2E ' } } });
+        await prisma.agent.deleteMany({ where: { OR: [{ name: { startsWith: 'E2E ' } }, { email: { startsWith: 'e2e_' } }] } });
+        await prisma.user.deleteMany({ where: { OR: [{ name: { startsWith: 'E2E ' } }, { email: { startsWith: 'e2e_' } }] } });
         await prisma.client.deleteMany({ where: { name: { startsWith: 'E2E ' } } });
         await prisma.vendor.deleteMany({ where: { name: { startsWith: 'E2E ' } } });
         await prisma.$disconnect();
