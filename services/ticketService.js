@@ -401,6 +401,7 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
         category: 'client',
         to: toList,
         cc: emailData.cc || [],
+        subject: emailData.subject || null,
         messageId: emailData.messageId || null,
         attachments: emailData.attachments || []
     });
@@ -543,6 +544,7 @@ const appendVendorReplyToTicket = async (ticket, emailData, vendorId = null, isM
         category: (vendorId && isMultiVendor) ? `vendor_${vendorId}` : 'vendor',
         to: toList,
         cc: emailData.cc || [],
+        subject: emailData.subject || null,
         messageId: emailData.messageId || null,
         attachments: emailData.attachments || []
     });
@@ -1179,6 +1181,8 @@ const createTicketFromEmail = async (emailData) => {
                         category: (ticketType === 'Vendor' && vendorId) ? `vendor_${vendorId}` : ticketType.toLowerCase(),
                         to: initialToList,
                         cc: emailData.cc || [],
+                        subject: subject || 'No Subject',
+                        messageId: messageId || null,
                         attachments: emailData.attachments || []
                     }
                 },
