@@ -455,6 +455,8 @@ const syncSentItemsEmails = async (accessToken, userEmail) => {
 
             const inReplyToHeader = msg.internetMessageHeaders?.find(h => h.name?.toLowerCase() === 'in-reply-to')?.value || null;
             const referencesHeader = msg.internetMessageHeaders?.find(h => h.name?.toLowerCase() === 'references')?.value || null;
+            const fromAddr = msg.from?.emailAddress?.address || userEmail;
+            const fromName = msg.from?.emailAddress?.name || fromAddr;
 
             // Check if this sent message matches an existing ticket
             const existingTicket = await ticketService.findExistingTicketForReply(inReplyToHeader, referencesHeader, subject, msg.body?.content, fromAddr);
@@ -489,8 +491,6 @@ const syncSentItemsEmails = async (accessToken, userEmail) => {
             const attachments = await fetchMessageAttachments(msg.id, msg.hasAttachments, accessToken, userEmail);
             const toRecips = msg.toRecipients ? msg.toRecipients.map(r => r.emailAddress?.address).filter(Boolean) : [];
             const ccRecips = msg.ccRecipients ? msg.ccRecipients.map(r => r.emailAddress?.address).filter(Boolean) : [];
-            const fromAddr = msg.from?.emailAddress?.address || userEmail;
-            const fromName = msg.from?.emailAddress?.name || fromAddr;
 
             await ticketService.appendAgentReplyFromOutlook(existingTicket, {
                 from: fromAddr,
