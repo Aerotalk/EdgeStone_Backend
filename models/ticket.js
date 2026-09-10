@@ -47,16 +47,33 @@ const TicketModel = {
 
     // Find ticket by original email Message-ID (for client reply threading)
     async findTicketByMessageId(messageId) {
-        if (!messageId) return null;
-        return prisma.ticket.findFirst({ where: { messageId } });
+        if (!messageId || typeof messageId !== 'string') return null;
+        const clean = messageId.trim();
+        const bare = clean.replace(/^<|>$/g, '').trim();
+        const bracketed = `<${bare}>`;
+        const idsToMatch = Array.from(new Set([clean, bare, bracketed])).filter(Boolean);
+
+        return prisma.ticket.findFirst({
+            where: { messageId: { in: idsToMatch } },
+            include: { client: true, vendor: true }
+        });
     },
 
     // Find a reply by its outgoing Message-ID to match client thread replies
     async findReplyByMessageId(messageId) {
-        if (!messageId) return null;
+        if (!messageId || typeof messageId !== 'string') return null;
+        const clean = messageId.trim();
+        const bare = clean.replace(/^<|>$/g, '').trim();
+        const bracketed = `<${bare}>`;
+        const idsToMatch = Array.from(new Set([clean, bare, bracketed])).filter(Boolean);
+
         return prisma.reply.findFirst({
-            where: { messageId },
-            include: { ticket: true }
+            where: { messageId: { in: idsToMatch } },
+            include: {
+                ticket: {
+                    include: { client: true, vendor: true }
+                }
+            }
         });
     },
 

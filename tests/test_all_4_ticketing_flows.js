@@ -380,6 +380,7 @@ async function runTests() {
         if (createdTicketIds.length > 0) {
             await prisma.reply.deleteMany({ where: { ticketId: { in: createdTicketIds } } });
             await prisma.activityLog.deleteMany({ where: { ticketId: { in: createdTicketIds } } });
+            await prisma.sLARecord.deleteMany({ where: { ticketId: { in: createdTicketIds } } }).catch(() => {});
             await prisma.ticket.deleteMany({ where: { id: { in: createdTicketIds } } });
         }
         for (const cid of createdCircuitIds) {

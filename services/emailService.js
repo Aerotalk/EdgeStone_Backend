@@ -139,7 +139,40 @@ const sendViaGraph = async (options) => {
         if (bccRecips.length > 0) message.bccRecipients = bccRecips;
     }
 
+    // Format RFC 5322 Message-IDs with angle brackets
+    const formatMsgId = (id) => {
+        if (!id || typeof id !== 'string') return null;
+        let clean = id.trim();
+        if (!clean) return null;
+        if (!clean.startsWith('<')) clean = `<${clean}`;
+        if (!clean.endsWith('>')) clean = `${clean}>`;
+        return clean;
+    };
+
+    const formatReferences = (refs) => {
+        if (!refs) return null;
+        const rawList = Array.isArray(refs) ? refs : refs.split(/\s+/);
+        const formatted = [];
+        for (const item of rawList) {
+            const clean = formatMsgId(item);
+            if (clean && !formatted.includes(clean)) {
+                formatted.push(clean);
+            }
+        }
+        return formatted.length > 0 ? formatted.join(' ') : null;
+    };
+
+    const formattedInReplyTo = inReplyTo ? formatMsgId(inReplyTo) : null;
+    const formattedReferences = references ? formatReferences(references) : null;
+
     const headers = [];
+    if (formattedInReplyTo) {
+        headers.push({ name: 'In-Reply-To', value: formattedInReplyTo });
+    }
+    if (formattedReferences) {
+        headers.push({ name: 'References', value: formattedReferences });
+    }
+
     const addHeader = (name, value) => {
         if (name.toLowerCase().startsWith('x-')) {
             headers.push({ name, value });
@@ -154,11 +187,11 @@ const sendViaGraph = async (options) => {
 
     // Use extended properties for In-Reply-To and References to enable threading
     const extendedProps = [];
-    if (inReplyTo) {
-        extendedProps.push({ id: 'String 0x1042', value: inReplyTo });
+    if (formattedInReplyTo) {
+        extendedProps.push({ id: 'String 0x1042', value: formattedInReplyTo });
     }
-    if (references) {
-        extendedProps.push({ id: 'String 0x1039', value: references });
+    if (formattedReferences) {
+        extendedProps.push({ id: 'String 0x1039', value: formattedReferences });
     }
     if (extendedProps.length > 0) {
         message.singleValueExtendedProperties = extendedProps;

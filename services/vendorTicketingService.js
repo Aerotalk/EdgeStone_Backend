@@ -136,20 +136,35 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
             return false;
         };
 
+        vendorContactEmails = Array.from(new Set(vendorContactEmails.map(e => e && e.trim()).filter(Boolean)));
+        const toLowerSet = new Set(vendorContactEmails.map(e => e.toLowerCase()));
+
         let visibleVendorCc = [];
         let hiddenVendorBcc = Array.isArray(bcc) ? [...bcc] : [];
 
         (cc || []).forEach(email => {
-            if (isClientPerson(email)) {
+            if (!email) return;
+            const clean = email.trim();
+            if (isClientPerson(clean)) {
                 // Client-side recipient MUST NOT be visible in vendor headers! Move to BCC!
-                if (!hiddenVendorBcc.includes(email)) {
-                    hiddenVendorBcc.push(email);
+                if (!hiddenVendorBcc.includes(clean)) {
+                    hiddenVendorBcc.push(clean);
                 }
-                logger.info(`🔒 [VENDOR PRIVACY] Moved client-side recipient "${email}" from CC to BCC to prevent exposure to vendor.`);
+                logger.info(`🔒 [VENDOR PRIVACY] Moved client-side recipient "${clean}" from CC to BCC to prevent exposure to vendor.`);
             } else {
-                visibleVendorCc.push(email);
+                if (toLowerSet.has(clean.toLowerCase())) {
+                    return; // Skip if already present in TO
+                }
+                if (!visibleVendorCc.includes(clean)) {
+                    visibleVendorCc.push(clean);
+                }
             }
         });
+
+        // Ensure hiddenVendorBcc does not duplicate emails in visible CC
+        const ccLowerSet = new Set(visibleVendorCc.map(e => e.toLowerCase()));
+        hiddenVendorBcc = Array.from(new Set(hiddenVendorBcc.map(e => e && e.trim()).filter(Boolean)))
+            .filter(e => !ccLowerSet.has(e.toLowerCase()));
 
         // 2. Create Reply Record natively mapped to the vendor category
         const reply = await TicketModel.addReply(ticket.id, {
@@ -173,13 +188,51 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
 
         const emailService = require('./emailService');
         
-        // 3.5 Find last message ID in thread for accurate In-Reply-To
-        const replies = await prisma.reply.findMany({
-            where: { ticketId: ticket.id, messageId: { not: null }, category: emailData.vendorId ? `vendor_${emailData.vendorId}` : 'vendor' },
-            orderBy: { createdAt: 'desc' },
-            take: 1
+        // 3.5 Find all message IDs in the vendor thread for RFC 5322 In-Reply-To and References chain
+        const isVendorOrMaintTicket = ticket.isMaintenance || ticket.ticketType === 'Vendor';
+        const vendorCategoryFilter = emailData.vendorId
+            ? { in: ['vendor', `vendor_${emailData.vendorId}`] }
+            : (isVendorOrMaintTicket ? undefined : { in: ['vendor'] });
+
+        const whereClause = {
+            ticketId: ticket.id,
+            messageId: { not: null }
+        };
+        if (vendorCategoryFilter) {
+            whereClause.OR = [
+                { category: vendorCategoryFilter },
+                { type: 'vendor' }
+            ];
+        }
+
+        const allVendorReplies = await prisma.reply.findMany({
+            where: whereClause,
+            orderBy: { createdAt: 'asc' }
         });
-        const threadMessageId = (replies.length > 0 && replies[0].messageId) ? replies[0].messageId : (ticket.messageId || null);
+
+        // The parent message is the very last reply with a messageId, or ticket.messageId
+        const lastReply = allVendorReplies.length > 0 ? allVendorReplies[allVendorReplies.length - 1] : null;
+        const threadMessageId = (lastReply && lastReply.messageId) ? lastReply.messageId.trim() : (ticket.messageId ? ticket.messageId.trim() : null);
+
+        // Build RFC 5322 References chain:
+        // root message ID (ticket.messageId if present) + all reply message IDs up to the current one
+        const referencesList = [];
+        if (ticket.messageId && ticket.messageId.trim()) {
+            referencesList.push(ticket.messageId.trim());
+        }
+        for (const rep of allVendorReplies) {
+            if (rep.messageId && rep.messageId.trim()) {
+                const trimmed = rep.messageId.trim();
+                if (!referencesList.includes(trimmed)) {
+                    referencesList.push(trimmed);
+                }
+            }
+        }
+        if (referencesList.length === 0 && threadMessageId) {
+            referencesList.push(threadMessageId);
+        }
+
+        const referencesChain = referencesList.join(' ');
 
         const emailHtml = htmlContent
             ? `
@@ -212,7 +265,7 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
             html: emailHtml,
             text: message || '',
             inReplyTo: threadMessageId, 
-            references: threadMessageId,
+            references: referencesChain || threadMessageId,
             attachments: attachments || []
         });
 

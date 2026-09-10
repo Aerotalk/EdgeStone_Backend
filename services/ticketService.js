@@ -184,7 +184,11 @@ const findExistingTicketForReply = async (inReplyTo, references, subject, body =
                 where: {
                     status: { notIn: ['Spam'] }
                 },
-                include: { client: true, vendor: true },
+                include: { 
+                    client: true, 
+                    vendor: true,
+                    replies: { select: { to: true, cc: true, author: true } }
+                },
                 orderBy: { createdAt: 'desc' }
             });
 
@@ -198,6 +202,17 @@ const findExistingTicketForReply = async (inReplyTo, references, subject, body =
                 if (t.client && Array.isArray(t.client.emails) && t.client.emails.some(e => e.toLowerCase() === cleanSender)) return true;
                 if (t.vendor && Array.isArray(t.vendor.emails) && t.vendor.emails.some(e => e.toLowerCase() === cleanSender)) return true;
                 
+                // Check if sender was added as a recipient or author in any prior replies on this ticket
+                if (Array.isArray(t.replies)) {
+                    const isParticipantInReplies = t.replies.some(r => {
+                        if (r.author && r.author.toLowerCase().includes(cleanSender)) return true;
+                        if (Array.isArray(r.to) && r.to.some(toEmail => toEmail.toLowerCase().trim() === cleanSender)) return true;
+                        if (Array.isArray(r.cc) && r.cc.some(ccEmail => ccEmail.toLowerCase().trim() === cleanSender)) return true;
+                        return false;
+                    });
+                    if (isParticipantInReplies) return true;
+                }
+
                 // Check corporate domain match with client
                 if (t.client && Array.isArray(t.client.emails) && cleanSender.includes('@')) {
                     const senderDomain = cleanSender.split('@')[1];
@@ -433,11 +448,15 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
         }
         const mergedCcs = Array.from(new Set(newParticipants.map(e => e.trim().toLowerCase()))).filter(e => e && e !== ticket.email?.toLowerCase());
         
-        if (mergedCcs.length !== existingCcs.length) {
+        const existingSet = new Set(existingCcs.map(e => e.trim().toLowerCase()));
+        const hasChanged = mergedCcs.length !== existingCcs.length || mergedCcs.some(e => !existingSet.has(e));
+
+        if (hasChanged) {
             await prisma.ticket.update({
                 where: { id: ticket.id },
                 data: { cc: { set: mergedCcs } }
             });
+            ticket.cc = mergedCcs; // Ensure in-memory ticket object is updated
             logger.info(`🎟️ [TICKET] 👥 Updated ticket CC list for Ticket ${ticket.ticketId}: ${mergedCcs.join(', ')}`);
         }
 
@@ -761,15 +780,20 @@ const createTicketFromEmail = async (emailData) => {
             }
 
             // Check if sender was added as a participant in previous replies of this ticket
+            let previousReplies = [];
+            try {
+                const prisma = require('../models/index');
+                previousReplies = await prisma.reply.findMany({
+                    where: { ticketId: existingTicket.id },
+                    orderBy: { createdAt: 'desc' }
+                });
+            } catch (rErr) {
+                logger.error(`Error loading previous replies for ticket ${existingTicket.ticketId}: ${rErr.message}`);
+            }
+
             if (!isVendor) {
                 const cleanFrom = from.trim().toLowerCase();
                 try {
-                    const prisma = require('../models/index');
-                    const previousReplies = await prisma.reply.findMany({
-                        where: { ticketId: existingTicket.id },
-                        orderBy: { createdAt: 'desc' }
-                    });
-
                     // 1. Was sender in TO or CC of any previous Vendor reply?
                     for (const r of previousReplies) {
                         const isVendorRep = r.category === 'vendor' || r.category?.startsWith('vendor_') || r.type === 'vendor';
@@ -800,6 +824,7 @@ const createTicketFromEmail = async (emailData) => {
 
                     // 3. Check if email mentions supplier circuit ID of any vendor on this circuit
                     if (!isVendor && existingTicket.circuitId) {
+                        const prisma = require('../models/index');
                         const circuit = await prisma.circuit.findFirst({
                             where: { OR: [ { customerCircuitId: existingTicket.circuitId }, { supplierCircuitId: existingTicket.circuitId }, { id: existingTicket.circuitId } ] },
                             include: { vendorCircuits: true }
@@ -844,12 +869,26 @@ const createTicketFromEmail = async (emailData) => {
             }
 
             // PREVENT FALSE POSITIVE: If the sender is the original ticket-raiser, is on ticket CC,
-            // or is a recognized contact of the client who owns the ticket, AND subject is not marked as vendor (-V),
+            // is a recognized contact of the client who owns the ticket, was in TO/CC of previous client replies,
+            // or if the email's recipients include the ticket creator, AND subject is not marked as vendor (-V),
             // route to client thread.
             const isExplicitVendor = subject && /\[#?V?\d+-V\]/i.test(subject);
-            const isClientSender = (existingTicket.email && existingTicket.email.toLowerCase() === from.toLowerCase()) ||
-                (Array.isArray(existingTicket.cc) && existingTicket.cc.some(c => c.toLowerCase() === from.toLowerCase())) ||
-                (existingTicket.client && Array.isArray(existingTicket.client.emails) && existingTicket.client.emails.some(e => e.toLowerCase() === from.toLowerCase()));
+            const cleanSenderFrom = from ? from.trim().toLowerCase() : '';
+            const incomingRecipients = [...(emailData.to || []), ...(emailData.cc || [])].map(e => e.toLowerCase().trim());
+            const includesTicketOwner = existingTicket.email && incomingRecipients.includes(existingTicket.email.toLowerCase().trim());
+
+            const isClientSender = (existingTicket.email && existingTicket.email.toLowerCase() === cleanSenderFrom) ||
+                (Array.isArray(existingTicket.cc) && existingTicket.cc.some(c => c.toLowerCase() === cleanSenderFrom)) ||
+                (existingTicket.client && Array.isArray(existingTicket.client.emails) && existingTicket.client.emails.some(e => e.toLowerCase() === cleanSenderFrom)) ||
+                (Array.isArray(previousReplies) && previousReplies.some(r => {
+                    const isClientReply = r.category === 'client' || (!r.category && r.type !== 'vendor');
+                    if (isClientReply) {
+                        const recips = [...(r.to || []), ...(r.cc || [])].map(e => e.toLowerCase().trim());
+                        return recips.includes(cleanSenderFrom);
+                    }
+                    return false;
+                })) ||
+                (includesTicketOwner && !isExplicitVendor);
 
             if (!isExplicitVendor && isClientSender) {
                 isVendor = false;
@@ -1346,7 +1385,10 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
 
         const recipientEmails = (emailOverrides.to && Array.isArray(emailOverrides.to) && emailOverrides.to.length > 0) ? emailOverrides.to : [ticket.email];
         const emailSubject = emailOverrides.subject || `Re: [${ticket.ticketId}] ${ticket.header}`;
-        const ccEmails = (emailOverrides.cc && Array.isArray(emailOverrides.cc)) ? emailOverrides.cc : [];
+        const rawCc = (emailOverrides.cc && Array.isArray(emailOverrides.cc)) ? emailOverrides.cc : (Array.isArray(ticket.cc) ? ticket.cc : []);
+        const toLowerSet = new Set(recipientEmails.map(e => e && e.toLowerCase().trim()));
+        const ccEmails = Array.from(new Set(rawCc.map(e => e && e.trim()).filter(Boolean)))
+            .filter(e => !toLowerSet.has(e.toLowerCase()));
         const bccEmails = (emailOverrides.bcc && Array.isArray(emailOverrides.bcc)) ? emailOverrides.bcc : [];
 
         // 2. Create Reply Record
@@ -1368,14 +1410,37 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
             attachments: attachments || []
         });
 
-        // 2.5 Find last message ID in thread for accurate In-Reply-To
+        // 2.5 Find all message IDs in the client thread for RFC 5322 In-Reply-To and References chain
         const prisma = require('../models/index');
         const replies = await prisma.reply.findMany({
             where: { ticketId: ticket.id, messageId: { not: null }, category: 'client' },
-            orderBy: { createdAt: 'desc' },
-            take: 1
+            orderBy: { createdAt: 'asc' }
         });
-        const threadMessageId = (replies.length > 0 && replies[0].messageId) ? replies[0].messageId : (ticket.messageId || null);
+
+        // Build RFC 5322 References chain:
+        // root message ID (ticket.messageId if present) + all reply message IDs up to the current one
+        const referencesList = [];
+        if (ticket.messageId && ticket.messageId.trim()) {
+            referencesList.push(ticket.messageId.trim());
+        }
+        for (const rep of replies) {
+            if (rep.messageId && rep.messageId.trim()) {
+                const trimmed = rep.messageId.trim();
+                if (!referencesList.includes(trimmed)) {
+                    referencesList.push(trimmed);
+                }
+            }
+        }
+
+        const threadMessageId = (replies.length > 0 && replies[replies.length - 1].messageId)
+            ? replies[replies.length - 1].messageId.trim()
+            : (ticket.messageId ? ticket.messageId.trim() : null);
+
+        if (referencesList.length === 0 && threadMessageId) {
+            referencesList.push(threadMessageId);
+        }
+
+        const referencesChain = referencesList.join(' ');
 
         logger.info(`🎟️ [TICKET] ✅ Reply added to database for Ticket ${ticket.ticketId}`);
 
@@ -1388,6 +1453,7 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
                     where: { id: ticket.id },
                     data: { cc: { set: mergedCcs } }
                 });
+                ticket.cc = mergedCcs; // Ensure in-memory ticket has updated CCs
             } catch (ccSaveErr) {
                 logger.error(`Failed to update ticket.cc in replyToTicket: ${ccSaveErr.message}`);
             }
@@ -1419,7 +1485,7 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
             html: finalEmailHtml,
             text: finalEmailText,
             inReplyTo: threadMessageId,
-            references: threadMessageId,
+            references: referencesChain || threadMessageId,
             attachments: attachments || []
         });
 
