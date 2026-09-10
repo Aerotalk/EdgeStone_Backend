@@ -69,6 +69,7 @@ const sendViaGraph = async (options) => {
             if (!options.attachments) options.attachments = [];
             options.attachments.push({
                 name: `image-${cidCounter}.${ext}`,
+                mimeType: `image/${ext}`,
                 contentBytes: base64Data,
                 isInline: true,
                 contentId: cid
@@ -166,15 +167,8 @@ const sendViaGraph = async (options) => {
     const formattedReferences = references ? formatReferences(references) : null;
 
     const headers = [];
-    if (formattedInReplyTo) {
-        headers.push({ name: 'In-Reply-To', value: formattedInReplyTo });
-    }
-    if (formattedReferences) {
-        headers.push({ name: 'References', value: formattedReferences });
-    }
-
     const addHeader = (name, value) => {
-        if (name.toLowerCase().startsWith('x-')) {
+        if (name && name.toLowerCase().startsWith('x-')) {
             headers.push({ name, value });
         }
     };

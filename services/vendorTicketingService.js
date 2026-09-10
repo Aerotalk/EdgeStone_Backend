@@ -168,7 +168,7 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
 
         // 2. Create Reply Record natively mapped to the vendor category
         const reply = await TicketModel.addReply(ticket.id, {
-            text: message,
+            text: (message !== undefined && message !== null && message.trim() !== '') ? message : (htmlContent || ' '),
             time: new Date().toLocaleTimeString('en-US', {
                 hour: '2-digit',
                 minute: '2-digit',
