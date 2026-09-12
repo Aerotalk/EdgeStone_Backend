@@ -142,7 +142,7 @@ async function runTest() {
         // Verify the reply is in the client thread and NOT misrouted to vendor
         const refreshedTicket = await prisma.ticket.findUnique({
             where: { id: ticket.id },
-            include: { replies: true }
+            include: { replies: { orderBy: { createdAt: 'asc' } } }
         });
         const allReplies = refreshedTicket.replies || [];
         const lastReply = allReplies[allReplies.length - 1];

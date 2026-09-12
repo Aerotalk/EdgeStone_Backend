@@ -79,31 +79,23 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
         if (to && Array.isArray(to) && to.length > 0) {
             vendorContactEmails = to; // Use frontend provided explicit targets
         } else {
-            // Determine vendor email — fetch from associated vendor, or via circuit, or fall back to env default
-            let vendorContactEmail = process.env.DEFAULT_VENDOR_EMAIL;
-            
-            if (ticket.vendorId) {
-                const VendorModel = require('../models/vendor');
-                const vendor = await VendorModel.findVendorById(ticket.vendorId);
-                if (vendor && vendor.emails && vendor.emails.length > 0) {
-                    vendorContactEmail = vendor.emails[0];
+            // Determine vendor email dynamically using getVendorEmailsForTicket (handles vendorId, circuitId, multi-vendor)
+            try {
+                const resolvedEmails = await getVendorEmailsForTicket(ticket.id, emailData.vendorId);
+                if (resolvedEmails && resolvedEmails.length > 0) {
+                    vendorContactEmails = resolvedEmails;
                 }
-            } else if (ticket.circuitId) {
-                // Fallback: If ticket is a client ticket but has a circuit, look up the circuit's vendor
-                const circuit = await prisma.circuit.findUnique({
-                    where: { customerCircuitId: ticket.circuitId },
-                    include: { vendor: true }
-                });
-                
-                if (circuit && circuit.vendor && circuit.vendor.emails && circuit.vendor.emails.length > 0) {
-                    vendorContactEmail = circuit.vendor.emails[0];
-                }
+            } catch (resolveErr) {
+                logger.warn(`⚠️ [TICKET] getVendorEmailsForTicket resolution warning: ${resolveErr.message}`);
             }
-            
-            if (!vendorContactEmail) {
+
+            if (vendorContactEmails.length === 0 && process.env.DEFAULT_VENDOR_EMAIL) {
+                vendorContactEmails = [process.env.DEFAULT_VENDOR_EMAIL];
+            }
+
+            if (vendorContactEmails.length === 0) {
                 throw new Error(`No vendor email found for ticket ${ticket.ticketId}. Please make sure the assigned vendor has an email address, or set DEFAULT_VENDOR_EMAIL in .env.`);
             }
-            vendorContactEmails = [vendorContactEmail];
         }
 
         logger.info(`🎟️ [TICKET] 📧 replyToVendor: Sending email to vendor emails: ${vendorContactEmails.join(', ')}`);

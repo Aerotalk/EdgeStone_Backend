@@ -81,8 +81,21 @@ const sendViaGraph = async (options) => {
 
     const formatRecipients = (recipients) => {
         if (!recipients) return [];
-        const arr = Array.isArray(recipients) ? recipients : [recipients];
-        return arr.map(email => ({ emailAddress: { address: email } }));
+        const rawArr = Array.isArray(recipients) ? recipients : [recipients];
+        const cleaned = [];
+        for (const r of rawArr) {
+            if (!r) continue;
+            const strVal = typeof r === 'string' ? r : (r.address || r.email || '');
+            if (typeof strVal === 'string') {
+                strVal.split(/[,;]+/).forEach(item => {
+                    const trimmed = item.trim();
+                    if (trimmed && !cleaned.includes(trimmed)) {
+                        cleaned.push(trimmed);
+                    }
+                });
+            }
+        }
+        return cleaned.map(email => ({ emailAddress: { address: email } }));
     };
 
     const message = {

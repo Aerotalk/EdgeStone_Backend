@@ -104,13 +104,44 @@ const findExistingTicketForReply = async (inReplyTo, references, subject, body =
         if (ticketIdMatch && ticketIdMatch[1]) {
             const rawId = ticketIdMatch[1];
             const friendlyId = (rawId.startsWith('#') ? rawId : '#' + rawId).toUpperCase();
+            const alternateId = friendlyId.startsWith('#V')
+                ? '#' + friendlyId.substring(2)
+                : (friendlyId.startsWith('#') ? '#V' + friendlyId.substring(1) : '#V' + friendlyId);
+
             const prisma = require('../models/index');
             const ticket = await prisma.ticket.findFirst({
-                where: { ticketId: { equals: friendlyId, mode: 'insensitive' } },
+                where: {
+                    OR: [
+                        { ticketId: { equals: friendlyId, mode: 'insensitive' } },
+                        { ticketId: { equals: alternateId, mode: 'insensitive' } }
+                    ]
+                },
                 include: { client: true, vendor: true }
             });
             if (ticket) {
                 logger.info(`🎟️ [TICKET] 🧵 Reply matched via Subject ID: ${friendlyId} → Ticket ${ticket.ticketId}`);
+                if (inReplyTo || references) {
+                    try {
+                        const refCandidates = [
+                            inReplyTo ? inReplyTo.trim() : null,
+                            ...(Array.isArray(references) ? references : (references ? references.split(/[\s,]+/) : []))
+                        ].filter(Boolean);
+
+                        for (const ref of refCandidates) {
+                            const clean = ref.replace(/[<>]/g, '').trim();
+                            const parentRep = await TicketModel.findReplyByMessageId(ref) ||
+                                              await TicketModel.findReplyByMessageId(`<${clean}>`) ||
+                                              await TicketModel.findReplyByMessageId(clean);
+                            if (parentRep && parentRep.ticketId === ticket.id) {
+                                ticket._matchedReply = parentRep;
+                                logger.info(`🎟️ [TICKET] 🔗 Attached parent reply ${parentRep.id} (category: ${parentRep.category}, type: ${parentRep.type}) to ticket ${ticket.ticketId}`);
+                                break;
+                            }
+                        }
+                    } catch (refErr) {
+                        logger.warn(`Failed to resolve parent reply on subject match: ${refErr.message}`);
+                    }
+                }
                 return ticket;
             }
         }
@@ -436,6 +467,44 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
     // Update ticket.cc if incoming email has CCs/TOs or comes from a new participant
     try {
         const prisma = require('../models/index');
+        const VendorModel = require('../models/vendor');
+        const ClientModel = require('../models/client');
+
+        // Load all vendors to block vendor emails and vendor domains from leaking into client CCs
+        const allVendors = await VendorModel.findAllVendors();
+        const allVendorEmails = new Set(allVendors.flatMap(v => (v.emails || []).map(e => e.toLowerCase().trim())));
+        const publicDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com', 'edgestone.in'];
+        const vendorDomains = Array.from(allVendorEmails)
+            .map(e => e.split('@')[1])
+            .filter(d => d && !publicDomains.includes(d.toLowerCase()));
+
+        const vendorNameTokens = new Set();
+        for (const v of allVendors) {
+            if (v.name) {
+                const cleanName = v.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (cleanName.length > 3) {
+                    vendorNameTokens.add(cleanName);
+                }
+            }
+        }
+
+        const isVendorPerson = (email) => {
+            if (!email) return false;
+            const clean = email.toLowerCase().trim();
+            if (allVendorEmails.has(clean)) return true;
+            const domain = clean.split('@')[1];
+            if (domain) {
+                if (vendorDomains.includes(domain)) return true;
+                for (const token of vendorNameTokens) {
+                    if (domain.includes(token)) return true;
+                }
+            }
+            return false;
+        };
+
+        const allOtherClients = ticket.clientId ? (await ClientModel.findAllClients()).filter(c => c.id !== ticket.clientId) : [];
+        const allOtherClientEmails = new Set(allOtherClients.flatMap(c => (c.emails || []).map(e => e.toLowerCase().trim())));
+
         const existingCcs = Array.isArray(ticket.cc) ? ticket.cc : [];
         const incomingCcs = Array.isArray(emailData.cc) ? emailData.cc : [];
         const incomingTos = (Array.isArray(emailData.to) ? emailData.to : []).filter(e => {
@@ -446,7 +515,13 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
         if (from && from.toLowerCase() !== ticket.email?.toLowerCase() && !from.toLowerCase().includes('edgestone.in')) {
             newParticipants.push(from);
         }
-        const mergedCcs = Array.from(new Set(newParticipants.map(e => e.trim().toLowerCase()))).filter(e => e && e !== ticket.email?.toLowerCase());
+
+        // STRICT SEGREGATION: Never allow vendor emails or foreign client emails to be added to client ticket.cc!
+        const mergedCcs = Array.from(new Set(newParticipants.map(e => e.trim().toLowerCase()))).filter(e => {
+            if (!e || e === ticket.email?.toLowerCase()) return false;
+            if (isVendorPerson(e) || allOtherClientEmails.has(e)) return false;
+            return true;
+        });
         
         const existingSet = new Set(existingCcs.map(e => e.trim().toLowerCase()));
         const hasChanged = mergedCcs.length !== existingCcs.length || mergedCcs.some(e => !existingSet.has(e));
@@ -469,18 +544,9 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
                 const newEmailsToAdd = [];
                 const candidates = [from, ...incomingCcs, ...incomingTos];
 
-                // Load all vendors and other clients to block foreign email pollution
-                const VendorModel = require('../models/vendor');
-                const allVendors = await VendorModel.findAllVendors();
-                const allVendorEmails = new Set(allVendors.flatMap(v => (v.emails || []).map(e => e.toLowerCase().trim())));
-
-                const ClientModel = require('../models/client');
-                const allOtherClients = (await ClientModel.findAllClients()).filter(c => c.id !== ticket.clientId);
-                const allOtherClientEmails = new Set(allOtherClients.flatMap(c => (c.emails || []).map(e => e.toLowerCase().trim())));
-
                 candidates.forEach(email => {
                     const clean = email && email.trim().toLowerCase();
-                    if (clean && !clean.includes('edgestone.in') && !allVendorEmails.has(clean) && !allOtherClientEmails.has(clean)) {
+                    if (clean && !clean.includes('edgestone.in') && !isVendorPerson(clean) && !allOtherClientEmails.has(clean)) {
                         if (!currentEmails.some(e => e.toLowerCase() === clean) && !newEmailsToAdd.some(e => e.toLowerCase() === clean)) {
                             newEmailsToAdd.push(email.trim());
                         }
@@ -550,6 +616,37 @@ const appendVendorReplyToTicket = async (ticket, emailData, vendorId = null, isM
         });
     }
 
+    let finalCategory = 'vendor';
+    if (vendorId) {
+        if (isMultiVendor) {
+            finalCategory = `vendor_${vendorId}`;
+        } else {
+            // Check if ticket or circuit is multi-vendor or has prior replies for vendor_${vendorId}
+            try {
+                const prisma = require('../models/index');
+                let isMulti = false;
+                if (ticket.circuitId) {
+                    const ckt = await prisma.circuit.findFirst({
+                        where: { OR: [ { customerCircuitId: ticket.circuitId }, { supplierCircuitId: ticket.circuitId }, { id: ticket.circuitId } ] },
+                        include: { vendorCircuits: true }
+                    });
+                    if (ckt && (ckt.isMultiVendor || (ckt.vendorCircuits && ckt.vendorCircuits.length > 0))) {
+                        isMulti = true;
+                    }
+                }
+                if (!isMulti) {
+                    const existingRep = await prisma.reply.findFirst({
+                        where: { ticketId: ticket.id, category: `vendor_${vendorId}` }
+                    });
+                    if (existingRep) isMulti = true;
+                }
+                if (isMulti) {
+                    finalCategory = `vendor_${vendorId}`;
+                }
+            } catch (_) {}
+        }
+    }
+
     const reply = await TicketModel.addReply(ticket.id, {
         text: replyText,
         time: emailReceivedDate.toLocaleTimeString('en-US', {
@@ -560,7 +657,7 @@ const appendVendorReplyToTicket = async (ticket, emailData, vendorId = null, isM
         date: emailReceivedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
         author: fromName || from,
         type: 'vendor',
-        category: (vendorId && isMultiVendor) ? `vendor_${vendorId}` : 'vendor',
+        category: finalCategory,
         to: toList,
         cc: emailData.cc || [],
         subject: emailData.subject || null,
@@ -770,7 +867,7 @@ const createTicketFromEmail = async (emailData) => {
             if (existingTicket._matchedReply && (existingTicket._matchedReply.category === 'vendor' || existingTicket._matchedReply.category?.startsWith('vendor_') || existingTicket._matchedReply.type === 'vendor')) {
                 logger.info(`🎟️ [TICKET] 🧵 Force-routing reply into Vendor thread due to parent reply in vendor thread`);
                 isVendor = true;
-                if (!finalVendorId && existingTicket._matchedReply.category?.startsWith('vendor_')) {
+                if (existingTicket._matchedReply.category?.startsWith('vendor_')) {
                     finalVendorId = existingTicket._matchedReply.category.replace('vendor_', '');
                 }
             } else if (existingTicket._matchedReply && (existingTicket._matchedReply.type === 'client' || (existingTicket._matchedReply.type === 'agent' && (!existingTicket._matchedReply.category || existingTicket._matchedReply.category === 'client')))) {
@@ -903,8 +1000,32 @@ const createTicketFromEmail = async (emailData) => {
             }
 
             let isCircuitMultiVendor = false;
-            if (isVendor && !finalVendorId) {
-                finalVendorId = existingTicket.vendorId;
+            if (isVendor) {
+                // Check if In-Reply-To or References matches an earlier vendor reply in this ticket
+                if (!finalVendorId && (emailData.inReplyTo || emailData.references)) {
+                    try {
+                        const prisma = require('../models/index');
+                        const refMsgId = emailData.inReplyTo || (emailData.references ? emailData.references.split(/\s+/).pop() : null);
+                        if (refMsgId) {
+                            const cleanMsgId = refMsgId.replace(/[<>]/g, '').trim();
+                            const parentRep = await prisma.reply.findFirst({
+                                where: {
+                                    ticketId: existingTicket.id,
+                                    OR: [
+                                        { messageId: refMsgId },
+                                        { messageId: `<${cleanMsgId}>` },
+                                        { messageId: cleanMsgId }
+                                    ]
+                                }
+                            });
+                            if (parentRep && parentRep.category?.startsWith('vendor_')) {
+                                finalVendorId = parentRep.category.replace('vendor_', '');
+                                isCircuitMultiVendor = true;
+                            }
+                        }
+                    } catch (_) {}
+                }
+
                 if (existingTicket.circuitId) {
                     try {
                         const prisma = require('../models/index');
@@ -922,7 +1043,7 @@ const createTicketFromEmail = async (emailData) => {
                                 );
                                 if (vcMatch && vcMatch.vendorId) {
                                     finalVendorId = vcMatch.vendorId;
-                                } else {
+                                } else if (!finalVendorId) {
                                     // If no specific vendor matched yet, find which vendor thread has the latest reply
                                     const lastVendorRep = await prisma.reply.findFirst({
                                         where: { ticketId: existingTicket.id, category: { startsWith: 'vendor_' } },
@@ -941,6 +1062,7 @@ const createTicketFromEmail = async (emailData) => {
                         logger.error(`Error finding circuit vendorId: ${vErr.message}`);
                     }
                 }
+                if (!finalVendorId) finalVendorId = existingTicket.vendorId;
             }
 
             if (isVendor) {
@@ -1171,10 +1293,20 @@ const createTicketFromEmail = async (emailData) => {
             const clean = e && e.toLowerCase().trim();
             return clean && !clean.includes('edgestone.in') && clean !== from.toLowerCase();
         });
+        let allVendorEmailsSet = new Set();
+        try {
+            const allVendorsList = await VendorModel.findAllVendors();
+            allVendorEmailsSet = new Set(allVendorsList.flatMap(v => (v.emails || []).map(e => e.toLowerCase().trim())));
+        } catch (_) {}
+
         const initialCcs = Array.from(new Set([
             ...(Array.isArray(emailData.cc) ? emailData.cc : []),
             ...incomingTos
-        ].map(e => e.trim().toLowerCase()))).filter(e => e && e !== from.toLowerCase());
+        ].map(e => e.trim().toLowerCase()))).filter(e => {
+            if (!e || e === from.toLowerCase()) return false;
+            if (ticketType === 'Client' && allVendorEmailsSet.has(e)) return false;
+            return true;
+        });
 
         const initialToList = [from];
         if (Array.isArray(emailData.to)) {
@@ -1186,13 +1318,18 @@ const createTicketFromEmail = async (emailData) => {
             });
         }
 
+        const isMaintenanceNotification = /(?:emergency|planned|scheduled|urgent)?\s*maintenance/i.test(`${subject || ''} ${body || ''}`);
+        const initialStatus = (ticketType === 'Vendor' && isMaintenanceNotification) ? 'Maintenance' : 'Open';
+        const initialIsMaintenance = (ticketType === 'Vendor' && isMaintenanceNotification);
+
         try {
             ticket = await TicketModel.createTicket({
                 ticketId,
                 header: subject || 'No Subject',
                 email: from,
-                status: 'Open',
+                status: initialStatus,
                 priority: 'Medium',
+                isMaintenance: initialIsMaintenance,
                 circuitId: circuitId, // Add circuitId to ticket
                 messageId: messageId, // Store original email messageId for threading
                 receivedAt: emailReceivedDate, // NEW: Store ISO timestamp
