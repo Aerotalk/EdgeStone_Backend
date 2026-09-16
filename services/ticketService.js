@@ -779,29 +779,35 @@ const appendVendorReplyToTicket = async (ticket, emailData, vendorId = null, isM
     } catch(err) { logger.error(`Notification Error: ${err.message}`) }
 
     // --- AUTOMATIC SLA START ON FIRST VENDOR REPLY ---
-    try {
-        const prisma = require('../models/index');
-        const existingVendorSla = await prisma.sLARecord.findFirst({
-            where: { ticketId: ticket.id, type: 'VENDOR' }
-        });
-
-        if (!existingVendorSla) {
-            const slaStart = new Date();
-            await prisma.sLARecord.create({
-                data: {
-                    ticketId: ticket.id,
-                    type: 'VENDOR',
-                    startDate: slaStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }),
-                    startTime: slaStart.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23', timeZone: 'Asia/Kolkata' }).replace(/^24:/, '00:'),
-                    status: 'Safe',
-                    compensation: '-',
-                    statusReason: 'Vendor SLA started on first vendor reply'
-                }
+    // Strict Guard: SLA is NEVER created for Vendor (#V) tickets or tickets with SLA disabled
+    const isVendorTicketForSla = ticket.ticketId?.startsWith('#V') || ticket.ticketType === 'Vendor';
+    if (!isVendorTicketForSla && ticket.isSlaActive !== false) {
+        try {
+            const prisma = require('../models/index');
+            const existingVendorSla = await prisma.sLARecord.findFirst({
+                where: { ticketId: ticket.id, type: 'VENDOR' }
             });
-            logger.info(`⏱️ [SLA] ✨ Vendor SLA clock started for Ticket ${ticket.ticketId}`);
+
+            if (!existingVendorSla) {
+                const slaStart = new Date();
+                await prisma.sLARecord.create({
+                    data: {
+                        ticketId: ticket.id,
+                        type: 'VENDOR',
+                        startDate: slaStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }),
+                        startTime: slaStart.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23', timeZone: 'Asia/Kolkata' }).replace(/^24:/, '00:'),
+                        status: 'Safe',
+                        compensation: '-',
+                        statusReason: 'Vendor SLA started on first vendor reply'
+                    }
+                });
+                logger.info(`⏱️ [SLA] ✨ Vendor SLA clock started for Ticket ${ticket.ticketId}`);
+            }
+        } catch (slaErr) {
+            logger.warn(`⚠️ ⏱️ [SLA] ⚠️ Failed to start Vendor SLA: ${slaErr.message}`);
         }
-    } catch (slaErr) {
-        logger.warn(`⚠️ ⏱️ [SLA] ⚠️ Failed to start Vendor SLA: ${slaErr.message}`);
+    } else {
+        logger.info(`⏱️ [SLA] ℹ️ Skipping Vendor SLA creation for Ticket ${ticket.ticketId}: SLA disabled for #V/Vendor tickets.`);
     }    return reply;
 };
 
@@ -1452,6 +1458,7 @@ const createTicketFromEmail = async (emailData) => {
         const isMaintenanceNotification = /(?:emergency|planned|scheduled|urgent)?\s*maint(?:en|ain)[ae]nce/i.test(`${subject || ''} ${body || ''}`);
         const initialStatus = (ticketType === 'Vendor' && isMaintenanceNotification) ? 'Maintenance' : 'Open';
         const initialIsMaintenance = (ticketType === 'Vendor' && isMaintenanceNotification);
+        const isVendorTicket = (ticketType === 'Vendor' || ticketId.startsWith('#V'));
 
         try {
             ticket = await TicketModel.createTicket({
@@ -1461,6 +1468,7 @@ const createTicketFromEmail = async (emailData) => {
                 status: initialStatus,
                 priority: isUnverifiedSender ? 'High' : 'Medium',
                 isMaintenance: initialIsMaintenance,
+                isSlaActive: !isVendorTicket, // SLA is disabled for Vendor (#V) tickets; only Client tickets support SLA
                 circuitId: circuitId, // Add circuitId to ticket
                 messageId: messageId, // Store original email messageId for threading
                 receivedAt: emailReceivedDate, // NEW: Store ISO timestamp
@@ -1749,19 +1757,23 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
         const finalEmailHtml = baseEmailHtml;
         const finalEmailText = message || '';
 
-        const sentResult = await emailService.sendAgentReplyEmail({
-            to: recipientEmails,
-            cc: ccEmails,
-            bcc: bccEmails,
-            subject: emailSubject,
-            html: finalEmailHtml,
-            text: finalEmailText,
-            inReplyTo: threadMessageId,
-            references: referencesChain || threadMessageId,
-            attachments: attachments || []
-        });
-
-        logger.info(`🎟️ [TICKET] 📤 Reply email sent to ${recipientEmails.join(', ')}`);
+        let sentResult = null;
+        try {
+            sentResult = await emailService.sendAgentReplyEmail({
+                to: recipientEmails,
+                cc: ccEmails,
+                bcc: bccEmails,
+                subject: emailSubject,
+                html: finalEmailHtml,
+                text: finalEmailText,
+                inReplyTo: threadMessageId,
+                references: referencesChain || threadMessageId,
+                attachments: attachments || []
+            });
+            logger.info(`🎟️ [TICKET] 📤 Reply email sent to ${recipientEmails.join(', ')}`);
+        } catch (emailErr) {
+            logger.error(`⚠️ 🎟️ [TICKET] Outbound reply email dispatch warning: ${emailErr.message}`);
+        }
 
         // Try to capture and save the outgoing Message-ID for future reverse-matching
         try {
@@ -1799,28 +1811,34 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
         logger.info(`🎟️ [TICKET] 📊 Activity logged: reply by ${agentName}`);
 
         // --- AUTOMATIC SLA START ON FIRST AGENT REPLY TO CLIENT ---
-        try {
-            const existingClientSla = await prisma.sLARecord.findFirst({
-                where: { ticketId: ticket.id, type: 'CLIENT' }
-            });
-
-            if (!existingClientSla) {
-                const slaStart = new Date();
-                await prisma.sLARecord.create({
-                    data: {
-                        ticketId: ticket.id,
-                        type: 'CLIENT',
-                        startDate: slaStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }),
-                        startTime: slaStart.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23', timeZone: 'Asia/Kolkata' }).replace(/^24:/, '00:'),
-                        status: 'Safe',
-                        compensation: '-',
-                        statusReason: 'Client SLA started'
-                    }
+        // Strict Guard: SLA is NEVER created for Vendor (#V) tickets or tickets with SLA disabled
+        const isVendorTicketForClientSla = ticket.ticketId?.startsWith('#V') || ticket.ticketType === 'Vendor';
+        if (!isVendorTicketForClientSla && ticket.isSlaActive !== false) {
+            try {
+                const existingClientSla = await prisma.sLARecord.findFirst({
+                    where: { ticketId: ticket.id, type: 'CLIENT' }
                 });
-                logger.info(`⏱️ [SLA] ✨ Client SLA clock started for Ticket ${ticket.ticketId}`);
+
+                if (!existingClientSla) {
+                    const slaStart = new Date();
+                    await prisma.sLARecord.create({
+                        data: {
+                            ticketId: ticket.id,
+                            type: 'CLIENT',
+                            startDate: slaStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }),
+                            startTime: slaStart.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23', timeZone: 'Asia/Kolkata' }).replace(/^24:/, '00:'),
+                            status: 'Safe',
+                            compensation: '-',
+                            statusReason: 'Client SLA started'
+                        }
+                    });
+                    logger.info(`⏱️ [SLA] ✨ Client SLA clock started for Ticket ${ticket.ticketId}`);
+                }
+            } catch (slaErr) {
+                logger.warn(`⚠️ ⏱️ [SLA] ⚠️ Failed to start Client SLA: ${slaErr.message}`);
             }
-        } catch (slaErr) {
-            logger.warn(`⚠️ ⏱️ [SLA] ⚠️ Failed to start Client SLA: ${slaErr.message}`);
+        } else {
+            logger.info(`⏱️ [SLA] ℹ️ Skipping Client SLA creation for Ticket ${ticket.ticketId}: SLA disabled for #V/Vendor tickets.`);
         }
 
         return reply;

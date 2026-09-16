@@ -58,7 +58,7 @@ const sendViaGraph = async (options) => {
     const path = require('path');
     
     // Parse HTML for base64 inline images and convert them to cid attachments
-    if (html) {
+    if (html && typeof html === 'string') {
         let cidCounter = 0;
         const regex = /src=["']data:image\/([a-zA-Z0-9+.-]+);base64,([^"']+)["']/gi;
         
@@ -180,8 +180,14 @@ const sendViaGraph = async (options) => {
     const formattedReferences = references ? formatReferences(references) : null;
 
     const headers = [];
+    if (formattedInReplyTo) {
+        headers.push({ name: 'In-Reply-To', value: formattedInReplyTo });
+    }
+    if (formattedReferences) {
+        headers.push({ name: 'References', value: formattedReferences });
+    }
     const addHeader = (name, value) => {
-        if (name && name.toLowerCase().startsWith('x-')) {
+        if (name) {
             headers.push({ name, value });
         }
     };
@@ -190,18 +196,6 @@ const sendViaGraph = async (options) => {
     });
     if (headers.length > 0) {
         message.internetMessageHeaders = headers;
-    }
-
-    // Use extended properties for In-Reply-To and References to enable threading
-    const extendedProps = [];
-    if (formattedInReplyTo) {
-        extendedProps.push({ id: 'String 0x1042', value: formattedInReplyTo });
-    }
-    if (formattedReferences) {
-        extendedProps.push({ id: 'String 0x1039', value: formattedReferences });
-    }
-    if (extendedProps.length > 0) {
-        message.singleValueExtendedProperties = extendedProps;
     }
 
     const toEmails = Array.isArray(to) ? to.join(', ') : to;
@@ -338,13 +332,16 @@ const sendViaGraph = async (options) => {
     }
 
     const headersUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/sendMail`;
+    const directMessage = { ...message };
+    delete directMessage.internetMessageHeaders;
+
     const response = await fetch(headersUrl, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ message, saveToSentItems: true })
+        body: JSON.stringify({ message: directMessage, saveToSentItems: true })
     });
 
     if (response.ok || response.status === 202) {

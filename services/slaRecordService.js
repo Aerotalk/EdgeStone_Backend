@@ -11,6 +11,14 @@ const getAllSLARecords = async ({ search, filter, customStart, customEnd, type }
         };
     }
 
+    // Exclude any records associated with #V or Vendor tickets (SLAs are strictly for Client tickets)
+    queryWhere.ticket = {
+        AND: [
+            { NOT: { ticketId: { startsWith: '#V' } } },
+            { NOT: { ticketType: 'Vendor' } }
+        ]
+    };
+
     const slaRecords = await prisma.sLARecord.findMany({
         where: queryWhere,
         include: {
@@ -18,6 +26,7 @@ const getAllSLARecords = async ({ search, filter, customStart, customEnd, type }
                 select: {
                     ticketId: true,
                     circuitId: true,
+                    ticketType: true,
                     client: { select: { name: true } },
                     vendor: { select: { name: true } }
                 }
@@ -166,6 +175,17 @@ const getSLARecordsByTicketId = async (ticketId) => {
 };
 
 const createSLARecord = async (data) => {
+    if (data.ticketId) {
+        const ticket = await prisma.ticket.findUnique({
+            where: { id: data.ticketId },
+            select: { id: true, ticketId: true, ticketType: true, isSlaActive: true }
+        });
+        if (ticket && (ticket.ticketId?.startsWith('#V') || ticket.ticketType === 'Vendor' || ticket.isSlaActive === false)) {
+            logger.warn(`⚠️ [SLA] Blocked SLA record creation for ticket ${ticket.ticketId}: SLA is disabled for #V/Vendor tickets.`);
+            return null;
+        }
+    }
+
     return await prisma.sLARecord.create({
         data: {
             ...data,

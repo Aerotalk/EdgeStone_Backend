@@ -3,6 +3,9 @@ const prisma = require('./index');
 const TicketModel = {
     // Create new ticket
     async createTicket(data) {
+        if (data.ticketId?.startsWith('#V') || data.ticketType === 'Vendor') {
+            data.isSlaActive = false;
+        }
         return prisma.ticket.create({ data });
     },
 

@@ -117,13 +117,26 @@ const toggleSla = async (req, res, next) => {
         
         logger.info(`🎟️ [TICKET] 🔄 Agent ${agentName} toggling SLA for ticket ${id} to ${isSlaActive}`);
         
-        // Assuming we just update the db model directly here or through ticketService
-        // but for now, directly via prisma if ticketService doesn't have it
         const prisma = require('../utils/prisma');
+        const targetTicket = await prisma.ticket.findUnique({
+            where: { id },
+            select: { id: true, ticketId: true, ticketType: true }
+        });
+
+        if (!targetTicket) {
+            return res.status(404).json({ message: 'Ticket not found' });
+        }
+
+        if (isSlaActive && (targetTicket.ticketId?.startsWith('#V') || targetTicket.ticketType === 'Vendor')) {
+            logger.warn(`⚠️ 🎟️ [TICKET] Rejected SLA toggle for ${targetTicket.ticketId}: SLA cannot be enabled for Vendor tickets.`);
+            return res.status(400).json({
+                message: 'SLA cannot be enabled for Vendor (#V) tickets. SLAs are strictly applicable to Client tickets.'
+            });
+        }
         
         const updatedTicket = await prisma.ticket.update({
             where: { id },
-            data: { isSlaActive }
+            data: { isSlaActive: targetTicket.ticketId?.startsWith('#V') || targetTicket.ticketType === 'Vendor' ? false : isSlaActive }
         });
         
         res.json({ message: 'SLA Status Updated', ticket: updatedTicket });
