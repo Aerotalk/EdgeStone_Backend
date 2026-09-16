@@ -61,7 +61,45 @@ const stripQuotedReply = (text) => {
 // But let's try top-level first, if it breaks, I'll move it.
 // Actually, emailService imports ticketService. If I import emailService here, it will be a cycle.
 // Better to emit an event or break the cycle. 
-// I will lazy-load emailService inside the function.
+// List of generic/public webmail domains that must NOT be used for corporate domain matching
+const GENERIC_PUBLIC_DOMAINS = new Set([
+    'gmail.com', 'googlemail.com', 'yahoo.com', 'ymail.com', 'rocketmail.com',
+    'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
+    'icloud.com', 'me.com', 'mac.com',
+    'aol.com', 'zoho.com', 'proton.me', 'protonmail.com',
+    'mail.com', 'gmx.com', 'gmx.net', 'yandex.com', 'fastmail.com'
+]);
+
+/**
+ * Checks if a given email belongs to a client:
+ * 1. Exact match with any registered email in client.emails
+ * 2. Matches a non-generic corporate domain extracted from client.emails
+ */
+const isEmailMatchingClientDomain = (email, client) => {
+    if (!email || !client || !Array.isArray(client.emails) || client.emails.length === 0) {
+        return false;
+    }
+    const cleanEmail = email.toLowerCase().trim();
+    // Direct exact match with an existing registered email
+    if (client.emails.some(e => e.toLowerCase().trim() === cleanEmail)) {
+        return true;
+    }
+    const parts = cleanEmail.split('@');
+    if (parts.length !== 2) return false;
+    const senderDomain = parts[1].trim();
+
+    // Generic/public domains cannot be used for cross-sender domain matching
+    if (GENERIC_PUBLIC_DOMAINS.has(senderDomain) || senderDomain.includes('edgestone.in')) {
+        return false;
+    }
+
+    // Extract valid corporate domains from the client's registered emails
+    const clientCorporateDomains = client.emails
+        .map(e => (e.split('@')[1] || '').toLowerCase().trim())
+        .filter(d => d && !GENERIC_PUBLIC_DOMAINS.has(d) && !d.includes('edgestone.in'));
+
+    return clientCorporateDomains.includes(senderDomain);
+};
 
 const generateTicketId = async (ticketType = 'Client') => {
     const prisma = require('../models/index');
@@ -547,8 +585,12 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
                 candidates.forEach(email => {
                     const clean = email && email.trim().toLowerCase();
                     if (clean && !clean.includes('edgestone.in') && !isVendorPerson(clean) && !allOtherClientEmails.has(clean)) {
-                        if (!currentEmails.some(e => e.toLowerCase() === clean) && !newEmailsToAdd.some(e => e.toLowerCase() === clean)) {
-                            newEmailsToAdd.push(email.trim());
+                        if (isEmailMatchingClientDomain(clean, client)) {
+                            if (!currentEmails.some(e => e.toLowerCase() === clean) && !newEmailsToAdd.some(e => e.toLowerCase() === clean)) {
+                                newEmailsToAdd.push(email.trim());
+                            }
+                        } else {
+                            logger.warn(`🛑 [CLIENT] Refused to auto-register contact ${email} into ${client.name} in reply: Domain does not match client's corporate domain.`);
                         }
                     }
                 });
@@ -1083,13 +1125,23 @@ const createTicketFromEmail = async (emailData) => {
         const clients = await ClientModel.findAllClients();
         potentialClientIds = clients.filter(c => c.emails.some(e => e.toLowerCase() === from.toLowerCase())).map(c => c.id);
 
+        const cleanFrom = from ? from.trim().toLowerCase() : '';
+        const fromDomain = cleanFrom.includes('@') ? cleanFrom.split('@')[1] : '';
+
+        // Domain matching for corporate client colleagues (e.g. alex@acmeretail.com)
+        let domainMatchedClientIds = [];
+        if (cleanFrom && fromDomain && !GENERIC_PUBLIC_DOMAINS.has(fromDomain)) {
+            domainMatchedClientIds = clients.filter(c => isEmailMatchingClientDomain(cleanFrom, c) && !potentialClientIds.includes(c.id)).map(c => c.id);
+            if (domainMatchedClientIds.length > 0) {
+                logger.info(`🎟️ [TICKET] 🎯 Identified ${from} as potential CLIENT based on corporate domain @${fromDomain} matching client ID(s): ${domainMatchedClientIds.join(', ')}`);
+            }
+        }
+
         const VendorModel = require('../models/vendor');
         const vendors = await VendorModel.findAllVendors();
         potentialVendorIds = vendors.filter(v => v.emails.some(e => e.toLowerCase() === from.toLowerCase())).map(v => v.id);
 
         // Domain matching fallback for unregistered vendor team members (e.g. Soumyajit.dhar@cognizant.com)
-        const cleanFrom = from ? from.trim().toLowerCase() : '';
-        const fromDomain = cleanFrom.includes('@') ? cleanFrom.split('@')[1] : '';
         const genericDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com', 'zoho.com', 'live.com', 'protonmail.com'];
         let domainMatchedVendorIds = [];
         if (cleanFrom && fromDomain && !genericDomains.includes(fromDomain)) {
@@ -1103,6 +1155,10 @@ const createTicketFromEmail = async (emailData) => {
         if (potentialClientIds.length > 0) {
             clientId = potentialClientIds[0];
             logger.debug(`🐞 🎟️ [TICKET] 👤 Initially identified sender as Client: ${clientId}`);
+        } else if (domainMatchedClientIds.length > 0) {
+            clientId = domainMatchedClientIds[0];
+            ticketType = 'Client';
+            logger.debug(`🐞 🎟️ [TICKET] 👤 Initially identified sender as Client via domain: ${clientId}`);
         } else if (potentialVendorIds.length > 0) {
             vendorId = potentialVendorIds[0];
             ticketType = 'Vendor';
@@ -1149,6 +1205,9 @@ const createTicketFromEmail = async (emailData) => {
             if (potentialClientIds.length > 0) {
                 priorityCircuits = allCircuits.filter(c => c.clientId && potentialClientIds.includes(c.clientId));
                 secondaryCircuits = []; // STRICT ISOLATION: Never match foreign client circuits!
+            } else if (domainMatchedClientIds.length > 0) {
+                priorityCircuits = allCircuits.filter(c => c.clientId && domainMatchedClientIds.includes(c.clientId));
+                secondaryCircuits = []; // STRICT ISOLATION: Corporate colleague only matches their company's circuits!
             } else if (potentialVendorIds.length > 0) {
                 priorityCircuits = allCircuits.filter(c => 
                     (c.vendorId && potentialVendorIds.includes(c.vendorId)) ||
@@ -1271,48 +1330,63 @@ const createTicketFromEmail = async (emailData) => {
                     const isExplicitVendor = isVendorCircuitMatched || (subject && /\[#?V?\d+-V\]/i.test(subject));
                     const isMaintenanceEmail = /(?:emergency|planned|scheduled|urgent)?\s*maint(?:en|ain)[ae]nce/i.test(`${subjectText} ${bodyText}`);
 
-                    // 1. If sender is recognized as the client for this circuit AND the email did NOT contain a vendor circuit ID / vendor tag or maintenance:
+                    // 1. If sender is recognized as the client for this circuit (or matching domain) AND the email did NOT contain a vendor circuit ID / vendor tag or maintenance:
                     // Priority belongs to Client! (prevents client ticket using customer circuit ID from being hijacked as vendor ticket)
-                    if (!isExplicitVendor && !isMaintenanceEmail && detectedCircuitRecord.clientId && potentialClientIds.includes(detectedCircuitRecord.clientId)) {
+                    if (!isExplicitVendor && !isMaintenanceEmail && detectedCircuitRecord.clientId && (potentialClientIds.includes(detectedCircuitRecord.clientId) || domainMatchedClientIds.includes(detectedCircuitRecord.clientId))) {
                         clientId = detectedCircuitRecord.clientId;
                         ticketType = 'Client';
                         vendorId = null;
-                        logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Client ${clientId} based on Circuit ${circuitId} (Sender is recognized client)`);
+                        logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Client ${clientId} based on Circuit ${circuitId} (Sender is recognized client / matching domain)`);
                     }
                     // 2. If it is a Maintenance email AND (contains Vendor Circuit ID OR sender is not a client OR sender matches vendor domain):
-                    else if (isMaintenanceEmail && circuitVendorId && (isVendorCircuitMatched || potentialClientIds.length === 0 || domainMatchedVendorIds.includes(circuitVendorId))) {
+                    else if (isMaintenanceEmail && circuitVendorId && (isVendorCircuitMatched || (potentialClientIds.length === 0 && domainMatchedClientIds.length === 0) || domainMatchedVendorIds.includes(circuitVendorId))) {
                         vendorId = circuitVendorId;
                         ticketType = 'Vendor';
                         clientId = null;
                         logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Identified as VENDOR MAINTENANCE for Vendor ${vendorId} on Circuit ${circuitId} (Vendor Circuit ID: ${isVendorCircuitMatched})`);
                     }
                     // 3. If explicitly vendor (contains Vendor Circuit ID or [#...-V]) AND sender is not a recognized client:
-                    else if (isExplicitVendor && circuitVendorId && (!detectedCircuitRecord.clientId || !potentialClientIds.includes(detectedCircuitRecord.clientId))) {
+                    else if (isExplicitVendor && circuitVendorId && (!detectedCircuitRecord.clientId || (!potentialClientIds.includes(detectedCircuitRecord.clientId) && !domainMatchedClientIds.includes(detectedCircuitRecord.clientId)))) {
                         vendorId = circuitVendorId;
                         ticketType = 'Vendor';
                         clientId = null;
                         logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Vendor ${vendorId} based on Circuit ${circuitId} (Vendor Circuit ID / Explicit Vendor)`);
                     }
                     // 4. If sender matched a vendor (directly or via domain) and sender is not a client:
-                    else if (matchedCircuitVendorId && (isExplicitVendor || potentialClientIds.length === 0)) {
+                    else if (matchedCircuitVendorId && (isExplicitVendor || (potentialClientIds.length === 0 && domainMatchedClientIds.length === 0))) {
                         vendorId = matchedCircuitVendorId;
                         ticketType = 'Vendor';
                         clientId = null;
                         logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Vendor ${vendorId} based on Circuit ${circuitId} (Sender matched vendor)`);
                     }
                     // 5. If matchedCircuitVendorId exists and sender is not recognized as the client for this circuit:
-                    else if (matchedCircuitVendorId && (!detectedCircuitRecord.clientId || !potentialClientIds.includes(detectedCircuitRecord.clientId))) {
+                    else if (matchedCircuitVendorId && (!detectedCircuitRecord.clientId || (!potentialClientIds.includes(detectedCircuitRecord.clientId) && !domainMatchedClientIds.includes(detectedCircuitRecord.clientId)))) {
                         vendorId = matchedCircuitVendorId;
                         ticketType = 'Vendor';
                         clientId = null;
                         logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Vendor ${vendorId} based on Circuit ${circuitId} (Vendor matched)`);
                     }
-                    // 6. Default to Client who owns the circuit (handles internal employees forwarding client emails or recognized clients):
+                    // 6. Check if sender belongs to the Client owning the circuit (or is authorized internal forwarder):
                     else if (detectedCircuitRecord.clientId) {
-                        clientId = detectedCircuitRecord.clientId;
-                        ticketType = 'Client';
-                        vendorId = null;
-                        logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Client ${clientId} based on Circuit ${circuitId}`);
+                        const isInternalForwarder = cleanFrom.includes('edgestone.in');
+                        const isSenderRecognizedClient = potentialClientIds.includes(detectedCircuitRecord.clientId);
+                        const isSenderDomainMatch = domainMatchedClientIds.includes(detectedCircuitRecord.clientId);
+
+                        if (isSenderRecognizedClient || isSenderDomainMatch || isInternalForwarder) {
+                            clientId = detectedCircuitRecord.clientId;
+                            ticketType = 'Client';
+                            vendorId = null;
+                            logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Client ${clientId} based on Circuit ${circuitId} (Sender is recognized client / matching domain)`);
+                        } else {
+                            // 🛑 UNVERIFIED SENDER!
+                            // Sender quoted a valid Customer Circuit ID, but has no affiliation with the Client.
+                            // Do NOT assign to client. Keep clientId null, set ticketType to 'Unverified'.
+                            const targetClient = clients.find(c => c.id === detectedCircuitRecord.clientId);
+                            logger.warn(`⚠️ 🎟️ [TICKET] 🛑 BLOCKED CLIENT ASSIGNMENT: Sender ${from} quoted Circuit ${circuitId} belonging to Client "${targetClient ? targetClient.name : 'Unknown'}", but sender is neither a registered contact nor from a matching corporate domain.`);
+                            clientId = null;
+                            ticketType = 'Unverified';
+                            vendorId = null;
+                        }
                     }
                 }
             }
@@ -1332,6 +1406,7 @@ const createTicketFromEmail = async (emailData) => {
         let ticket;
         let retries = 0;
         const maxRetries = 3;
+        const isUnverifiedSender = ticketType === 'Unverified';
 
         while (retries < maxRetries) {
             ticketId = await generateTicketId(ticketType);
@@ -1381,10 +1456,10 @@ const createTicketFromEmail = async (emailData) => {
         try {
             ticket = await TicketModel.createTicket({
                 ticketId,
-                header: subject || 'No Subject',
+                header: isUnverifiedSender ? `[UNVERIFIED SENDER] ${subject || 'No Subject'}` : (subject || 'No Subject'),
                 email: from,
                 status: initialStatus,
-                priority: 'Medium',
+                priority: isUnverifiedSender ? 'High' : 'Medium',
                 isMaintenance: initialIsMaintenance,
                 circuitId: circuitId, // Add circuitId to ticket
                 messageId: messageId, // Store original email messageId for threading
@@ -1409,8 +1484,8 @@ const createTicketFromEmail = async (emailData) => {
                         }), // FIXED: Use email time, not current time
                         date: emailReceivedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
                         author: fromName || from,
-                        type: ticketType.toLowerCase(),
-                        category: (ticketType === 'Vendor' && vendorId) ? `vendor_${vendorId}` : ticketType.toLowerCase(),
+                        type: ticketType === 'Unverified' ? 'client' : ticketType.toLowerCase(),
+                        category: (ticketType === 'Vendor' && vendorId) ? `vendor_${vendorId}` : (ticketType === 'Unverified' ? 'client' : ticketType.toLowerCase()),
                         to: initialToList,
                         cc: emailData.cc || [],
                         subject: subject || 'No Subject',
@@ -1446,8 +1521,10 @@ const createTicketFromEmail = async (emailData) => {
                         const newEmails = [];
                         [from, ...initialCcs].forEach(em => {
                             const c = em && em.trim().toLowerCase();
-                            if (c && !c.includes('edgestone.in') && !currentEmails.some(x => x.toLowerCase() === c) && !newEmails.some(x => x.toLowerCase() === c)) {
+                            if (c && !c.includes('edgestone.in') && isEmailMatchingClientDomain(c, client) && !currentEmails.some(x => x.toLowerCase() === c) && !newEmails.some(x => x.toLowerCase() === c)) {
                                 newEmails.push(em.trim());
+                            } else if (c && !c.includes('edgestone.in') && !isEmailMatchingClientDomain(c, client)) {
+                                logger.warn(`🛑 [CLIENT] Refused to auto-register contact ${em} into ${client.name}: Domain does not match client's corporate domain.`);
                             }
                         });
                         if (newEmails.length > 0) {
@@ -1500,8 +1577,10 @@ const createTicketFromEmail = async (emailData) => {
         } catch(err) { logger.error(`Notification Error: ${err.message}`) }
 
         // Auto-reply logic
-        // Skip auto-reply for all vendor-raised tickets (including maintenance)
-        if (ticketType !== 'Vendor') {
+        // Skip auto-reply for all vendor-raised tickets (including maintenance) and unverified senders
+        if (ticketType === 'Unverified' || !clientId) {
+            logger.info(`🎟️ [TICKET] 🛑 Skipped Auto-Reply for Ticket ${ticket.ticketId} (Unverified sender)`);
+        } else if (ticketType !== 'Vendor') {
             try {
                 const emailService = require('./emailService');
                 const autoReplySubject = `Ticket Received: [${ticket.ticketId}] ${ticket.header}`;
