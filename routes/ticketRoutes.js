@@ -4,7 +4,7 @@ const ticketController = require('../controllers/ticketController');
 const workNoteController = require('../controllers/workNoteController');
 const activityLogController = require('../controllers/activityLogController');
 
-const { protect } = require('../middlewares/authMiddleware');
+const { protect, requireManagerOrSuperAdmin } = require('../middlewares/authMiddleware');
 
 router.get('/', protect, ticketController.getTickets);
 router.post('/', protect, ticketController.createTicket);
@@ -23,6 +23,6 @@ router.get('/:id/activity-logs', protect, activityLogController.getActivityLogs)
 router.get('/:ticketId/activity-logs', protect, activityLogController.getActivityLogs);
 
 router.post('/:id/auto-reply', protect, ticketController.sendAutoReply);
-router.delete('/:id', protect, ticketController.deleteTicket);
+router.delete('/:id', protect, requireManagerOrSuperAdmin, ticketController.deleteTicket);
 
 module.exports = router;

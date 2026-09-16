@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const circuitController = require('../controllers/circuitController');
-const { protect, authorize } = require('../middlewares/authMiddleware');
+const { protect, authorize, requireManagerOrSuperAdmin } = require('../middlewares/authMiddleware');
 
 // Get all circuits
 router.get('/',     protect, authorize('Manager', 'Support crew'), circuitController.getCircuits);
@@ -12,7 +12,7 @@ router.post('/',    protect, authorize('Manager'), circuitController.createCircu
 // Update an existing circuit
 router.put('/:id',  protect, authorize('Manager'), circuitController.updateCircuit);
 
-// Delete a circuit
-router.delete('/:id', protect, authorize('Manager', 'Support crew'), circuitController.deleteCircuit);
+// Delete a circuit (Manager & Super Admin only)
+router.delete('/:id', protect, requireManagerOrSuperAdmin, circuitController.deleteCircuit);
 
 module.exports = router;

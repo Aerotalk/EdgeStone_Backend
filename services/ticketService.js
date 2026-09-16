@@ -1087,6 +1087,18 @@ const createTicketFromEmail = async (emailData) => {
         const vendors = await VendorModel.findAllVendors();
         potentialVendorIds = vendors.filter(v => v.emails.some(e => e.toLowerCase() === from.toLowerCase())).map(v => v.id);
 
+        // Domain matching fallback for unregistered vendor team members (e.g. Soumyajit.dhar@cognizant.com)
+        const cleanFrom = from ? from.trim().toLowerCase() : '';
+        const fromDomain = cleanFrom.includes('@') ? cleanFrom.split('@')[1] : '';
+        const genericDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com', 'zoho.com', 'live.com', 'protonmail.com'];
+        let domainMatchedVendorIds = [];
+        if (cleanFrom && fromDomain && !genericDomains.includes(fromDomain)) {
+            domainMatchedVendorIds = vendors.filter(v => Array.isArray(v.emails) && v.emails.some(e => e.toLowerCase().endsWith('@' + fromDomain))).map(v => v.id);
+            if (domainMatchedVendorIds.length > 0) {
+                logger.info(`🎟️ [TICKET] 🎯 Identified ${from} as potential VENDOR based on domain @${fromDomain} matching vendor ID(s): ${domainMatchedVendorIds.join(', ')}`);
+            }
+        }
+
         // Set initial defaults (first match wins, will be disambiguated by circuit later if needed)
         if (potentialClientIds.length > 0) {
             clientId = potentialClientIds[0];
@@ -1095,6 +1107,10 @@ const createTicketFromEmail = async (emailData) => {
             vendorId = potentialVendorIds[0];
             ticketType = 'Vendor';
             logger.debug(`🐞 🎟️ [TICKET] 🏢 Initially identified sender as Vendor: ${vendorId}`);
+        } else if (domainMatchedVendorIds.length > 0) {
+            vendorId = domainMatchedVendorIds[0];
+            ticketType = 'Vendor';
+            logger.debug(`🐞 🎟️ [TICKET] 🏢 Initially identified sender as Vendor via domain: ${vendorId}`);
         } else {
             logger.debug(`🐞 🎟️ [TICKET] ❓ Sender not identified as existing client or vendor.`);
         }
@@ -1139,6 +1155,12 @@ const createTicketFromEmail = async (emailData) => {
                     (c.isMultiVendor && c.vendorCircuits && c.vendorCircuits.some(vc => potentialVendorIds.includes(vc.vendorId)))
                 );
                 secondaryCircuits = []; // STRICT ISOLATION: Never match foreign vendor circuits!
+            } else if (domainMatchedVendorIds.length > 0) {
+                priorityCircuits = allCircuits.filter(c => 
+                    (c.vendorId && domainMatchedVendorIds.includes(c.vendorId)) ||
+                    (c.isMultiVendor && c.vendorCircuits && c.vendorCircuits.some(vc => domainMatchedVendorIds.includes(vc.vendorId)))
+                );
+                secondaryCircuits = allCircuits;
             } else {
                 // Unregistered sender or internal employee forwarding: search all circuits
                 priorityCircuits = allCircuits;
@@ -1216,42 +1238,76 @@ const createTicketFromEmail = async (emailData) => {
                         }
                     }
 
+                    // Determine circuit vendor (supports single vendor & multi-vendor)
+                    let circuitVendorId = null;
                     if (detectedCircuitRecord.isMultiVendor && detectedCircuitRecord.vendorCircuits && detectedCircuitRecord.vendorCircuits.length > 0) {
-                        // For multi-vendor, check if sender matches any of the vendorCircuits' vendors
-                        const matchingVendorCircuit = detectedCircuitRecord.vendorCircuits.find(vc => vc.vendorId && potentialVendorIds.includes(vc.vendorId));
-                        if (matchingVendorCircuit) {
-                            matchedCircuitVendorId = matchingVendorCircuit.vendorId;
+                        if (matchResult && matchResult.matchedId) {
+                            const matchedVc = detectedCircuitRecord.vendorCircuits.find(vc => 
+                                vc.supplierCircuitId && vc.supplierCircuitId.toUpperCase() === matchResult.matchedId.toUpperCase()
+                            );
+                            if (matchedVc && matchedVc.vendorId) {
+                                circuitVendorId = matchedVc.vendorId;
+                            }
                         }
-                    } else if (detectedCircuitRecord.vendorId && potentialVendorIds.includes(detectedCircuitRecord.vendorId)) {
-                        // Standard single vendor check
-                        matchedCircuitVendorId = detectedCircuitRecord.vendorId;
+                        if (!circuitVendorId && domainMatchedVendorIds.length > 0) {
+                            const domainVc = detectedCircuitRecord.vendorCircuits.find(vc => domainMatchedVendorIds.includes(vc.vendorId));
+                            if (domainVc && domainVc.vendorId) {
+                                circuitVendorId = domainVc.vendorId;
+                            }
+                        }
+                        if (!circuitVendorId) {
+                            const matchingVc = detectedCircuitRecord.vendorCircuits.find(vc => vc.vendorId && potentialVendorIds.includes(vc.vendorId));
+                            circuitVendorId = matchingVc ? matchingVc.vendorId : detectedCircuitRecord.vendorCircuits[0].vendorId;
+                        }
+                    } else {
+                        circuitVendorId = detectedCircuitRecord.vendorId;
                     }
 
-                    const isExplicitVendor = (matchResult && matchResult.isSupplier) || (subject && /\[#?V?\d+-V\]/i.test(subject));
+                    if (circuitVendorId && (potentialVendorIds.includes(circuitVendorId) || domainMatchedVendorIds.includes(circuitVendorId))) {
+                        matchedCircuitVendorId = circuitVendorId;
+                    }
 
-                    // 1. If NOT explicitly a vendor communication, and the sender is a recognized client for this circuit:
+                    const isVendorCircuitMatched = (matchResult && matchResult.isSupplier) || containsVendorCircuitId;
+                    const isExplicitVendor = isVendorCircuitMatched || (subject && /\[#?V?\d+-V\]/i.test(subject));
+                    const isMaintenanceEmail = /(?:emergency|planned|scheduled|urgent)?\s*maint(?:en|ain)[ae]nce/i.test(`${subjectText} ${bodyText}`);
+
+                    // 1. If sender is recognized as the client for this circuit AND the email did NOT contain a vendor circuit ID / vendor tag or maintenance:
                     // Priority belongs to Client! (prevents client ticket using customer circuit ID from being hijacked as vendor ticket)
-                    if (!isExplicitVendor && detectedCircuitRecord.clientId && potentialClientIds.includes(detectedCircuitRecord.clientId)) {
+                    if (!isExplicitVendor && !isMaintenanceEmail && detectedCircuitRecord.clientId && potentialClientIds.includes(detectedCircuitRecord.clientId)) {
                         clientId = detectedCircuitRecord.clientId;
                         ticketType = 'Client';
                         vendorId = null;
                         logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Client ${clientId} based on Circuit ${circuitId} (Sender is recognized client)`);
                     }
-                    // 2. If explicitly vendor OR sender is ONLY a vendor (not a client):
+                    // 2. If it is a Maintenance email AND (contains Vendor Circuit ID OR sender is not a client OR sender matches vendor domain):
+                    else if (isMaintenanceEmail && circuitVendorId && (isVendorCircuitMatched || potentialClientIds.length === 0 || domainMatchedVendorIds.includes(circuitVendorId))) {
+                        vendorId = circuitVendorId;
+                        ticketType = 'Vendor';
+                        clientId = null;
+                        logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Identified as VENDOR MAINTENANCE for Vendor ${vendorId} on Circuit ${circuitId} (Vendor Circuit ID: ${isVendorCircuitMatched})`);
+                    }
+                    // 3. If explicitly vendor (contains Vendor Circuit ID or [#...-V]) AND sender is not a recognized client:
+                    else if (isExplicitVendor && circuitVendorId && (!detectedCircuitRecord.clientId || !potentialClientIds.includes(detectedCircuitRecord.clientId))) {
+                        vendorId = circuitVendorId;
+                        ticketType = 'Vendor';
+                        clientId = null;
+                        logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Vendor ${vendorId} based on Circuit ${circuitId} (Vendor Circuit ID / Explicit Vendor)`);
+                    }
+                    // 4. If sender matched a vendor (directly or via domain) and sender is not a client:
                     else if (matchedCircuitVendorId && (isExplicitVendor || potentialClientIds.length === 0)) {
                         vendorId = matchedCircuitVendorId;
                         ticketType = 'Vendor';
                         clientId = null;
-                        logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Vendor ${vendorId} based on Circuit ${circuitId}`);
+                        logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Vendor ${vendorId} based on Circuit ${circuitId} (Sender matched vendor)`);
                     }
-                    // 3. If matchedCircuitVendorId exists and sender is not recognized as the client for this circuit:
+                    // 5. If matchedCircuitVendorId exists and sender is not recognized as the client for this circuit:
                     else if (matchedCircuitVendorId && (!detectedCircuitRecord.clientId || !potentialClientIds.includes(detectedCircuitRecord.clientId))) {
                         vendorId = matchedCircuitVendorId;
                         ticketType = 'Vendor';
                         clientId = null;
                         logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Vendor ${vendorId} based on Circuit ${circuitId} (Vendor matched)`);
                     }
-                    // 4. Default to Client who owns the circuit (handles internal employees forwarding client emails or recognized clients):
+                    // 6. Default to Client who owns the circuit (handles internal employees forwarding client emails or recognized clients):
                     else if (detectedCircuitRecord.clientId) {
                         clientId = detectedCircuitRecord.clientId;
                         ticketType = 'Client';
@@ -1318,7 +1374,7 @@ const createTicketFromEmail = async (emailData) => {
             });
         }
 
-        const isMaintenanceNotification = /(?:emergency|planned|scheduled|urgent)?\s*maintenance/i.test(`${subject || ''} ${body || ''}`);
+        const isMaintenanceNotification = /(?:emergency|planned|scheduled|urgent)?\s*maint(?:en|ain)[ae]nce/i.test(`${subject || ''} ${body || ''}`);
         const initialStatus = (ticketType === 'Vendor' && isMaintenanceNotification) ? 'Maintenance' : 'Open';
         const initialIsMaintenance = (ticketType === 'Vendor' && isMaintenanceNotification);
 

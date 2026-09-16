@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const signatureController = require('../controllers/signatureController');
+const { protect, requireManagerOrSuperAdmin } = require('../middlewares/authMiddleware');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Multer config — store image in memory, limit to 5MB
@@ -48,7 +49,7 @@ router.get('/', signatureController.getSignatures);
 router.post('/', signatureController.createSignature);
 router.put('/:id/set-default', signatureController.setDefault);   // specific before generic
 router.put('/:id', signatureController.updateSignature);
-router.delete('/:id', signatureController.deleteSignature);
+router.delete('/:id', protect, requireManagerOrSuperAdmin, signatureController.deleteSignature);
 
 module.exports = router;
 

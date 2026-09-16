@@ -92,8 +92,34 @@ const requireSuperAdmin = (req, res, next) => {
     }
 };
 
+const requireManagerOrSuperAdmin = (req, res, next) => {
+    if (!req.user) {
+        logger.error('🚫 [AUTHORIZE] ⚠️ Not authorized, user payload absent');
+        res.status(401);
+        return next(new Error('Not authorized, user not found'));
+    }
+
+    const role = (req.user.role || '').toLowerCase().trim();
+    const isSuperAdmin = (req.user.access && req.user.access.superAdmin) || 
+                         role === 'super admin' || 
+                         role === 'superadmin' || 
+                         Boolean(req.user.isSuperAdmin);
+    const isManager = role === 'manager';
+
+    if (!isSuperAdmin && !isManager) {
+        logger.warn(`🛑 [AUTHORIZE] ⛔ Delete privilege denied for User ${req.user.email} (Role: [${req.user.role}]). Only Manager and Super Admin are authorized to delete.`);
+        res.status(403);
+        return next(new Error('Permission denied: Only Manager and Super Admin can delete records.'));
+    }
+
+    logger.info(`✅ [AUTHORIZE] 🗑️ User ${req.user.email} (Role: [${req.user.role}]) authorized for delete operation.`);
+    next();
+};
+
 module.exports = {
     protect,
     authorize,
-    requireSuperAdmin
+    requireSuperAdmin,
+    requireManagerOrSuperAdmin
 };
+
